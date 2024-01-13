@@ -1,0 +1,331 @@
+#! /usr/bin/env python3
+
+#########################################
+# This script converts json key:value mappings in billing records to a wlcg specific mapping scheme
+# author: sandro.grizzo@desy.de
+# date: 2024-01-10
+# version: 1.0
+#########################################
+
+import argparse
+import json
+import logging
+import logging.config
+import re
+import ssl
+import sys
+from ipaddress import ip_address, IPv6Address, IPv4Address, ip_network
+
+import stomp
+import yaml
+from dateutil.parser import *
+from kafka import KafkaConsumer
+
+logger = logging.getLogger('wlcgConverter')
+
+
+class WlcgConverter:
+
+    def __init__(self, conf={}, activemq_connection=None):
+        self.conf = conf
+        self.activemq_connection = activemq_connection
+
+    def execute(self, message):
+        message_data = message.value
+        if message_data.get('msgType') == 'request' and \
+                message_data.get('status', {}).get('code') == 0 and \
+                message_data.get("moverInfo", {}).get("protocolInfo", {}).get("protocol") == self.conf["protocol"]:
+
+            wlcg_dict = self.convert_desy_to_WLCG(message_data)
+
+            if self.conf["local_dump"]:
+                with open(self.conf["path_to_converted_json_file"], 'a') as wlcg_json_output_file:
+                    json.dump(wlcg_dict, wlcg_json_output_file)
+                    wlcg_json_output_file.write('\n')
+                    logger.debug("Message_data: %s", message_data)
+
+            if self.conf["send_data"]:
+                if self.conf["ip_filter_is_active"]:
+                    client_ip = message_data.get("moverInfo", {}).get("protocolInfo", {}).get("host")
+                    if not self.__ip_matches_subnet(client_ip,
+                                                self.conf["ipv4_network_address"],
+                                                self.conf["ipv4_cidr"]) \
+                                                or not self.__ip_matches_subnet(client_ip,
+                                                self.conf["ipv6_network_address"],
+                                                self.conf["ipv6_cidr"]):
+                        self.activemq_connection.send(destination=self.conf["amq_topic"],
+                                                  body=json.dumps(wlcg_dict),
+                                                  content_type='application/json')
+                        logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
+                else:
+                    self.activemq_connection.send(destination=self.conf["amq_topic"],
+                                              body=json.dumps(wlcg_dict),
+                                              content_type='application/json')
+                    logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
+
+
+    def __split_ip_and_port(self, local_endpoint) -> str:
+        if local_endpoint is not None:
+            if local_endpoint.count(':') < 2:
+                ipv4 = local_endpoint.split(':')[0]
+                return ipv4
+            elif local_endpoint.count(':') > 1:
+                ipv6 = re.split('[\[\]]', local_endpoint)[1]
+                return ipv6
+        return None
+
+    def __ip_matches_subnet(self, client_ip_addr, network_addr, network_cidr):
+        '''
+        :param client_ip_addr: The IPv4 or IPv6 address of the requesting client (key: "host")
+        :param network_addr: The subnet's base address in decimal notation, e.g. "135.170.0.0"
+        :param network_cidr: The subnet mask in CIDR notation without a preceding '/' (slash), e.g. "24"
+        :return: True if the given ip matches the subnet. False otherwise.
+        :throws: A warning is printed and logged if any invalid arguments are passed. Nothing more.
+        '''
+
+        try:
+            subnet = ip_network(network_addr + "/" + str(network_cidr))
+            ip_addr = ip_address(client_ip_addr)
+
+            if ip_addr in subnet:
+                return True
+            return False
+
+        except ValueError as ve:
+            logger.warning("Invalid Argument: %s", ve)
+
+    def convert_desy_to_WLCG(self, dict_file):
+        '''
+        Converts "site"-formatted json billing records to wlcg-formatted json billing records.
+        (introducing new 'key:value' mappings in the converted records)
+        :param dict_file: python dictionary file
+        :return: a python dictionary with key:value mappings as required in the wlcg-format
+        '''
+        wlcg_dict = {}
+        # check if msg_type==request and protocol==Xrootd, otherwise return empty dict.
+        if "msgType" in dict_file.keys():
+            if dict_file.get("msgType") != "request":
+                logger.debug("Skipped: JSON entry 'msg_type' was not 'request'.")
+                return wlcg_dict
+            if "moverInfo" in dict_file.keys():
+                if dict_file.get("moverInfo").get("protocolInfo", {}).get("protocol") != self.conf["protocol"]:
+                    logger.debug("Skipped: JSON entry 'protocol' was not '{}'.".format(self.conf["protocol"]))
+                    return wlcg_dict
+            else:
+                logger.debug("Error: Unable to identify 'protocol'")
+                return wlcg_dict
+        else:
+            logger.debug("Error: Unable to identify 'message type'")
+            return wlcg_dict
+        # ----------------------------------------------------------------------------------------------------
+        host = dict_file.get("moverInfo").get("protocolInfo").get("host")
+        local_endpoint_raw = dict_file.get("moverInfo").get("localEndpoint")
+        local_endpoint = self.__split_ip_and_port(local_endpoint_raw)
+
+        if dict_file.get("moverInfo").get("isWrite") == "read":
+            wlcg_dict["dst_hostname"] = host if host is not None else None
+            wlcg_dict["src_hostname"] = local_endpoint if local_endpoint is not None else None
+            wlcg_dict["bytes_in"] = dict_file.get("moverInfo").get("transferSize")
+            wlcg_dict["bytes_out"] = None
+        elif dict_file.get("moverInfo").get("isWrite") == "write":
+            wlcg_dict["dst_hostname"] = local_endpoint if local_endpoint is not None else None
+            wlcg_dict["src_hostname"] = host if host is not None else None
+            wlcg_dict["bytes_in"] = None
+            wlcg_dict["bytes_out"] = dict_file.get("moverInfo").get("transferSize")
+        else:
+            wlcg_dict["dst_hostname"] = None
+            wlcg_dict["src_hostname"] = None
+            wlcg_dict["bytes_in"] = None
+            wlcg_dict["bytes_out"] = None
+            logger.warning("WLCGConverter: dst_hostname and src_hostname could not be determined!")
+        # ----------------------------------------------------------------------------------------------------
+        wlcg_dict["protocol"] = dict_file.get("moverInfo", {}).get("protocolInfo", {}).get("protocol")
+        # ----------------------------------------------------------------------------------------------------
+        date = dict_file.get("date")
+        if date is not None:
+            try:
+                datetime_format = parse(date)
+            except ValueError:
+                logger.debug("Error: 'date' format is not ISO.")
+                wlcg_dict["start_time"] = None
+                wlcg_dict["end_time"] = None
+            else:
+                transfer_time = dict_file.get("moverInfo").get("transferTime")
+                if transfer_time is not None:
+                    # convert unix epoch timestamp in seconds with millis into millis and subtract the transfertime(which is in millis by default)
+                    start_unix_timestamp_millis = int(datetime_format.timestamp() * 1000 - transfer_time)
+                    end_unix_timestamp_millis = int(datetime_format.timestamp() * 1000)
+
+                    wlcg_dict["start_time"] = start_unix_timestamp_millis
+                    wlcg_dict["end_time"] = end_unix_timestamp_millis
+                else:
+                    wlcg_dict["start_time"] = None
+                    wlcg_dict["end_time"] = None
+        else:
+            wlcg_dict["start_time"] = None
+            wlcg_dict["end_time"] = None
+        # ----------------------------------------------------------------------------------------------------
+        wlcg_dict["status"] = dict_file.get("moverInfo").get("status", {}).get("code")
+        wlcg_dict["error_category"] = dict_file.get("moverInfo").get("status")
+        wlcg_dict["error_message"] = dict_file.get("moverInfo").get("status", {}).get("msg")
+        # ----------------------------------------------------------------------------------------------------
+        subject = dict_file.get("subject")
+        if subject is not None:
+            for entry in subject:
+                if "FQANPrincipal" in entry:
+                    try:
+                        wlcg_dict["vo"] = re.split('[/\],]', entry)[1]
+                        break
+                    except IndexError:
+                        wlcg_dict["vo"] = None
+                        break
+        else:
+            wlcg_dict["vo"] = None
+        # ----------------------------------------------------------------------------------------------------
+        wlcg_dict["activity"] = "Value_TBD"
+        # ----------------------------------------------------------------------------------------------------
+        if host is not None:
+            try:
+                ip_addr = ip_address(host)
+                if type(ip_addr) is IPv6Address:
+                    wlcg_dict["ipv6"] = True
+                else:
+                    wlcg_dict["ipv6"] = False
+            except ValueError:
+                wlcg_dict["ipv6"] = False
+
+            try:
+                ip_addr = ip_address(host)
+                if type(ip_addr) is IPv6Address or type(ip_addr) is IPv4Address:
+                    wlcg_dict["ipver"] = str(ip_addr.version)
+            except ValueError:
+                wlcg_dict["ipver"] = "unknown"
+        # ----------------------------------------------------------------------------------------------------
+        logger.debug(wlcg_dict)
+
+        return wlcg_dict
+
+# ************************************************************************************************************
+
+
+def __connect_2_activemq(conf) -> object:
+
+    amq_host = conf["amq_host"]
+    amq_port = conf["amq_port_tls"] if conf["amq_port_tls"] else conf["amq_port"]
+
+    conn = stomp.Connection12([(amq_host, int(amq_port))])
+
+    if "path_to_cert" in conf and "path_to_key" in conf:
+        conn.set_ssl(
+            for_hosts=[(amq_host, int(amq_port))],
+            key_file=conf["path_to_key"],
+            cert_file=conf["path_to_cert"],
+            ssl_version=ssl.PROTOCOL_TLSv1_2)
+        conn.connect(wait=True)
+        logger.info("AMQ SSL: certificate based authentication is used.")
+
+    elif "username" in conf and "password" in conf:
+        conn.connect(conf["username"], conf["password"], wait=True)
+        logger.info("AMQ Plain: user-password based authentication is used.")
+    else:
+        raise IOError(
+            "ERROR: The input arguments do not include a valid authentication tuple \
+             (certificate, key) or (username, password)"
+        )
+
+    return conn
+
+# ************************************************************************************************************
+
+
+class CustomKafkaConsumer:
+    """Initialize a custom Kafka-Consumer"""
+
+    def __init__(self,
+                 servers=[],
+                 msg_offset='earliest',
+                 topic_name='',
+                 group_id='',
+                 msg_format='json'):
+        self.servers = servers
+        self.group_id = group_id
+        self.topic_name = topic_name
+        self.msg_format = msg_format
+        self.msg_offset = msg_offset
+        self.consumer = None
+
+        try:
+            logger.info("Trying to connect to Kafka...")
+            self.consumer = KafkaConsumer(self.topic_name,
+                                          auto_offset_reset=self.msg_offset,
+                                          group_id=self.group_id,
+                                          bootstrap_servers=self.servers,
+                                          value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+            logger.info("Connection to Kafka established.")
+        except Exception as e:
+            logger.error("Error initializing KafkaConsumer: {}".format(e))
+
+    def getMessage(self, analyser):
+        for message in self.consumer:
+            try:
+                analyser.execute(message)
+            except IOError:
+                pass
+
+
+# ************************************************************************************************************
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Script to convert desy-formatted billing json files to wlcg-formatted json files'
+    )
+    parser.add_argument(
+        dest='path_to_config', help='Path to configuration file for wlcgConverter', type=str
+    )
+    args = parser.parse_args()
+
+    # read the config yaml file #
+    with open(args.path_to_config, 'r') as config:
+        try:
+            config_all = (yaml.safe_load(config))
+        except yaml.YAMLError as exc:
+            logger.error("An error occurred opening the wlcgConverter_config.yaml file: {}".format(exc))
+            sys.exit(1)
+
+    # convert the yaml file content into a python dictionary #
+    conf = {k: v for k, v in config_all.items() if v is not None}
+
+    # logging setup #
+    logging_conf = config_all.get("config::logging")
+    logging.config.dictConfig(logging_conf)
+    if conf["verbose"]: 
+        logger.setLevel('DEBUG')
+
+    # create a kafka consumer object #
+    kafka_consumer = CustomKafkaConsumer(topic_name=conf["topic"],
+                                    msg_offset='latest',
+                                    servers=conf["kafka_broker_incoming"],
+                                    group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
+
+    connection = None
+    # connect to active_mq if send_date is True in config#
+    if conf["send_data"]:
+        connection = __connect_2_activemq(conf)
+        logger.info("Producer: Connection to amq broker established successfully.")
+
+    # create a converter object #
+    wlgc_converter = WlcgConverter(conf, activemq_connection=connection)
+    # and start working until Ctrl-c is pressed.#
+    try:
+        kafka_consumer.getMessage(analyser=wlgc_converter)
+    except KeyboardInterrupt:
+        logger.info("\nWlcgConverter was terminated by user (CTRL-C).")
+    finally:
+        if connection is not None:
+            logger.info("Disconnecting...")
+            connection.disconnect()
+            logger.info("AMQ connection was disconnected successfully.")
+
+
+if __name__ == "__main__":
+    main()

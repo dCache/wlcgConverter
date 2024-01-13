@@ -1,0 +1,13 @@
+# this unit file is kept in /etc/systemd/system
+# Version: 1.0 (2024-01-10)
+
+[Unit]
+Description=Wlcg_Converter
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wlcgConverter /etc/wlcg_converter/wlcgConverter_config.yaml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

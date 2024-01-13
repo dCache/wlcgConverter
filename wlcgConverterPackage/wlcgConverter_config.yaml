@@ -1,0 +1,71 @@
+###################wlcgConverter config file ###########################
+#  Version: 1.0 (2024-01-10)
+
+#config::authentication :
+#x509 :
+path_to_cert:               #(obligatory)<-----MUST be provided for encrypted transmission. E.g.:"/path/to/your/cert_file" (obligatory)
+path_to_key:                #(obligatory)<-----MUST be provided for encrypted transmission. E.g.:"/path/to/your/key_file" (obligatory)
+#passw_auth :
+username:
+password:  
+
+#config::AMQ :
+amq_host: "dashb-lb-mb.cern.ch"
+amq_port: "61113"
+amq_port_tls: "61123"
+amq_topic: "/topic/xrootd.dcache"
+
+#config::ip_filter :
+ip_filter_is_active: False                             #(optional)<------configure if ip filtering of specified subnets is desired. (optional)
+ipv4_network_address :                           #if <ip_filter_is_active> is set to True, a ipv4 network base address MUST be provided. E.g.: '123.456.0.0'
+ipv4_cidr :                                                   #if <ip_filter_is_active> is set to True, a netmask in cidr notation MUST be provided. E.g.: '16'
+ipv6_network_address :                          #if <ip_filter_is_active> is set to True, a ipv6 network base address MUST be provided. E.g.: '1234:456:700::'
+ipv6_cidr :                                                 #if <ip_filter_is_active> is set to True, a  netmask in cidr notation MUST be provided. E.g.: '48'
+
+#config::options :
+protocol: "Xrootd"
+local_dump: False                                      #(optional) if set to True  a local dump of the converted json is made to a location specified under 'path_to_converted_json_file '(optional)
+verbose: False                                             #(optional) if set to True a high amount of logging output for debugging is written to the path specified below under 'filename'. Usually /var/log/ (optional)
+send_data: False                       #(obligatory)<-----MUST be set to True if the transmission of data stream to CERN is to be started (obligatory)
+
+#config::path to local dump file :
+path_to_converted_json_file :           # only obligatory if  "local_dump" is set to True. E.g.: "/path/to/wlcg_converted.json"
+
+#config::kafka:
+kafka_broker_incoming:            #(obligatory)<------your local kafka broker addresses as a list. E.g: ['it-kafka-broker42.site.com:1234', 'it-kafka-broker007.site.com:5678'] (obligatory)
+
+
+#config::log_archiver :
+instance :                                  # (obligatory) <-----name of the instance used for your kafka stream. E.g.: 'cms'  (obligatory)
+topic :                                        # (obligatory)<------name of the kafka topic used by your kafka brokers. E.g.: 'billing-cms' (obligatory)
+
+#config::logging: ------------------all denoted options below are optional---------------------------------------------------------------------
+config::logging :
+        version: 1
+        formatters:
+                simple:
+                        format: "\n%(asctime)s - [%(name)s] - [%(funcName)s] - [%(levelname)s] - %(message)s"
+        handlers:
+                console:
+                        class: logging.StreamHandler
+                        level: INFO                                     #<----change to DEBUG if very verbose output is needed for debugging (optional)
+                        formatter: simple
+                        stream: ext://sys.stdout
+                file:
+                        class: logging.FileHandler
+                        level: INFO                                     #<----change to DEBUG if very verbose output is needed for debugging (optional)
+                        formatter: simple
+                        filename: /var/log/wlcg_converter.log  # <----configure the path to the .log file (optional)
+                        mode: a
+        loggers:
+                wlcgConverter:
+                        level: INFO                             #<----change to DEBUG if very verbose output is needed for debugging (optional)
+                        handlers: [ console, file ]
+                        propagate: no
+        root:
+                level: DEBUG
+                handlers: [ console, file ]
+
+#######################################################################################################
+                
+
