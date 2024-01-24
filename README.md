@@ -1,6 +1,6 @@
 # WlcgConverter setup guide
 #### Version: 1.0 (2024-01-10) 
-
+**Important Note:** dCache v9.2 is a minimum requirement for the successful operation of the wlcgConverter. <br><br>
 The "wlcgConverter" is a software tool that converts "site"-formatted json billing records to wlcg-formatted json billing records (providing for new 'key:value' mappings in the converted records).  
 It is run as a systemd service on linux machines.
 The tool also provides further functionalities, such as:
