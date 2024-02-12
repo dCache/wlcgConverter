@@ -1,12 +1,14 @@
 # WlcgConverter setup guide
-#### Version: 1.0 (2024-01-10) 
-**Important Note:** dCache v9.2 is a minimum requirement for the successful operation of the wlcgConverter. <br><br>
+#### Version: 1.1 (2024-02-12) 
+**Important Note:** dCache v9.2 is a minimum requirement for the successful operation of the wlcgConverter. <br>
+Additionally a running Apache Kafka installation is required. More information on configuring dCache for the use with Kafka can be found [here](https://www.dcache.org/manuals/Book-9.2/kafkaproducer.shtml).
+<br>
+
 The "wlcgConverter" is a software tool that converts "site"-formatted json billing records to wlcg-formatted json billing records (providing for new 'key:value' mappings in the converted records).  
-It is run as a systemd service on linux machines.
-The tool also provides further functionalities, such as:
+It is run as a systemd service on any linux machine, that has a network connection to Kafka brokers providing the billing records.<br>
+The tool also offers further functionalities, such as:
 - sending the converted data via an encrypted channel (provided that a certificate and key file have been configured)
 - ip filtering of configurable subnets, that are to be excluded from transmission
-
 
 
 To establish an encrypted transmission channel, three essential things must be provided beforehand:
