@@ -60,11 +60,14 @@ fields may make others obligatory.
 
 
 ## Where to locate the provided files
-In the "wlcgConverterPackage" directory you will find 3 files. These must be copied to the following locations.  
+In the "wlcgConverterPackage" directory you will find the script `wlcgConverter.py`, the `wlcg` package it imports, the systemd unit and the config file. These must be copied to the following locations.  
+The script and the `wlcg` directory must stay together; never copy the script on its own.  
 Run these commands as root from within the directory:
 ```
-cp wlcgConverter  /usr/bin/
-chmod 755 /usr/bin/wlcgConverter
+mkdir -p /opt/wlcgConverter
+cp -r wlcgConverter.py wlcg /opt/wlcgConverter/
+chmod 755 /opt/wlcgConverter/wlcgConverter.py
+ln -sf /opt/wlcgConverter/wlcgConverter.py /usr/bin/wlcgConverter
 
 cp wlcgConverter.service /etc/systemd/system/
 

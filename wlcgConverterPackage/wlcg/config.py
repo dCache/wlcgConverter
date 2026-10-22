@@ -1,0 +1,63 @@
+"""Validated configuration for wlcgConverter."""
+
+from .net import parse_network
+
+
+class ConfigError(Exception):
+    pass
+
+
+class Config(dict):
+    """
+    The YAML config as a dict (empty values dropped, so every v1 key keeps working via
+    conf["key"] / conf.get("key")), plus the checked and pre-parsed v2 schema settings
+    as attributes. Bad settings raise ConfigError here, at startup, not per record.
+    """
+
+    def __init__(self, raw):
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise ConfigError("the config file must hold a YAML mapping")
+        super().__init__({k: v for k, v in raw.items() if v is not None})
+
+        self.server_technology = self._string("server_technology", "dcache")
+        self.server_site = self._required("server_site", "the WLCG site name, e.g. 'DESY-HH'")
+        self.server_version = self._required("server_version", "the dCache release, e.g. '10.2.5'")
+        self.storage_instance = self._string("storage_instance", str(self.get("instance", "")))
+        self.local_networks = self._networks("local_networks")
+        self.strip_prefixes = self._prefixes("file_name_strip_prefixes")
+
+    def _string(self, key, default):
+        value = self.get(key, default)
+        if not isinstance(value, str):
+            # an unquoted 10.10 would silently become the float 10.1
+            raise ConfigError("'%s' must be a quoted string, got %r" % (key, value))
+        return value.strip()
+
+    def _required(self, key, what):
+        value = self._string(key, "")
+        if not value:
+            raise ConfigError("'%s' is obligatory: set it to %s" % (key, what))
+        return value
+
+    def _networks(self, key):
+        cidrs = self.get(key, [])
+        if not isinstance(cidrs, list):
+            raise ConfigError("'%s' must be a list of CIDRs" % key)
+        try:
+            return [parse_network(cidr) for cidr in cidrs]
+        except ValueError as e:
+            raise ConfigError("'%s': %s" % (key, e))
+
+    def _prefixes(self, key):
+        prefixes = self.get(key, [])
+        if not isinstance(prefixes, list):
+            raise ConfigError("'%s' must be a list of absolute paths" % key)
+        cleaned = set()
+        for prefix in prefixes:
+            if not isinstance(prefix, str) or not prefix.startswith('/') or not prefix.rstrip('/'):
+                raise ConfigError("'%s': %r is not an absolute path below '/'" % (key, prefix))
+            cleaned.add(prefix.rstrip('/'))
+        # longest first, so the first prefix that matches is the longest one
+        return sorted(cleaned, key=len, reverse=True)

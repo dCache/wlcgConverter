@@ -21,6 +21,8 @@ import yaml
 from dateutil.parser import *
 from kafka import KafkaConsumer
 
+from wlcg.config import Config, ConfigError
+
 logger = logging.getLogger('wlcgConverter')
 
 
@@ -288,18 +290,23 @@ def main():
     # read the config yaml file #
     with open(args.path_to_config, 'r') as config:
         try:
-            config_all = (yaml.safe_load(config))
+            config_all = yaml.safe_load(config) or {}
         except yaml.YAMLError as exc:
             logger.error("An error occurred opening the wlcgConverter_config.yaml file: {}".format(exc))
             sys.exit(1)
 
-    # convert the yaml file content into a python dictionary #
-    conf = {k: v for k, v in config_all.items() if v is not None}
-
     # logging setup #
     logging_conf = config_all.get("config::logging")
     logging.config.dictConfig(logging_conf)
-    if conf["verbose"]: 
+
+    # validate the config; empty values are dropped #
+    try:
+        conf = Config(config_all)
+    except ConfigError as e:
+        logger.error("Invalid configuration in %s: %s", args.path_to_config, e)
+        sys.exit(2)
+
+    if conf["verbose"]:
         logger.setLevel('DEBUG')
 
     # create a kafka consumer object #

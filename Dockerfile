@@ -10,9 +10,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the wlcgConverter script
-COPY wlcgConverterPackage/wlcgConverter.py /usr/local/bin/wlcgConverter
-RUN chmod +x /usr/local/bin/wlcgConverter
+# Copy the wlcgConverter script together with its wlcg package; Python resolves
+# the symlink, so the script finds wlcg/ next to its real location
+COPY wlcgConverterPackage/wlcgConverter.py /opt/wlcgConverter/wlcgConverter.py
+COPY wlcgConverterPackage/wlcg /opt/wlcgConverter/wlcg
+RUN chmod +x /opt/wlcgConverter/wlcgConverter.py \
+    && ln -s /opt/wlcgConverter/wlcgConverter.py /usr/local/bin/wlcgConverter
 
 # Create directories for configuration and logs
 RUN mkdir -p /etc/wlcg_converter /var/log

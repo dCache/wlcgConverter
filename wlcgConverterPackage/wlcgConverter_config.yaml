@@ -39,7 +39,15 @@ kafka_broker_incoming:            #(obligatory)<------your local kafka broker ad
 instance :                                  # (obligatory) <-----name of the instance used for your kafka stream. E.g.: 'cms'  (obligatory)
 topic :                                        # (obligatory)<------name of the kafka topic used by your kafka brokers. E.g.: 'billing-cms' (obligatory)
 
-#config::logging: ------------------all denoted options below are optional---------------------------------------------------------------------
+#config::schema : ---------------------settings for the v2 WLCG transfer record (see docs/SCHEMA.md)----------------------------------------
+server_technology: "dcache"                    #(optional) default: dcache
+server_site:                                    #(obligatory)<-----WLCG site name of this storage, as a quoted string. E.g.: "DESY-HH" (obligatory)
+server_version:                                 #(obligatory)<-----dCache release of this instance, as a quoted string. E.g.: "10.2.5" (obligatory)
+storage_instance:                               #(optional) name of the dCache instance; defaults to <instance>
+local_networks:                                 #(optional) client IPs in these CIDRs belong to <server_site> => traffic_scope LAN. E.g.: ["131.169.0.0/16", "2001:638:700::/48"]
+file_name_strip_prefixes: []                    #(optional) prefixes removed from file_path to build file_name; longest match wins. E.g.: ["/pnfs/desy.de/cms/tier2"]
+
+#config::logging:------------------all denoted options below are optional---------------------------------------------------------------------
 config::logging :
         version: 1
         formatters:
