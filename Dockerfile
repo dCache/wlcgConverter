@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the wlcgConverter script
-COPY wlcgConverterPackage/wlcgConverter /usr/local/bin/wlcgConverter
+COPY wlcgConverterPackage/wlcgConverter.py /usr/local/bin/wlcgConverter
 RUN chmod +x /usr/local/bin/wlcgConverter
 
 # Create directories for configuration and logs

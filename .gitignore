@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+venv/
+.env
+.pytest_cache/
+
+# raw billing samples hold real DNs and emails
+billing_records/
+
+# local test output
+output_test.json
+*.log
