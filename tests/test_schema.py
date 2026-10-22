@@ -86,9 +86,28 @@ def test_failed_transfer_keeps_native_code_and_message(conf):
     assert (record["status_code"], record["error_message"]) == (10007, "Pool not available")
 
 
-def test_missing_mover_status(conf):
-    record = build_record(billing_record(mover={"status": None}), conf)
+def test_door_status_wins_over_mover_status(conf):
+    # the pool moved the data, but the door reported a failure to the client
+    raw = billing_record(top={"status": {"code": 666, "msg": "Post-processing failed"}})
+    record = build_record(raw, conf)
+    assert (record["status_code"], record["error_message"]) == (666, "Post-processing failed")
+
+
+@pytest.mark.parametrize("door_status", [None, {}, {"msg": "no code"}])
+def test_mover_status_is_the_fallback(conf, door_status):
+    raw = billing_record(top={"status": door_status}, mover={"status": {"code": 10011, "msg": "Read failed"}})
+    record = build_record(raw, conf)
+    assert (record["status_code"], record["error_message"]) == (10011, "Read failed")
+
+
+def test_no_status_anywhere(conf):
+    record = build_record(billing_record(top={"status": None}, mover={"status": None}), conf)
     assert (record["status_code"], record["error_message"]) == (None, "")
+
+
+def test_non_numeric_transfer_time_keeps_the_record(conf):
+    record = build_record(billing_record(mover={"transferTime": "abc"}), conf)
+    assert (record["start_time"], record["end_time"]) == (None, 1789396298362)
 
 
 def test_missing_transfer_time_keeps_end_time(conf):

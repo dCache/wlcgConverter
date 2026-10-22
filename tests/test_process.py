@@ -26,7 +26,7 @@ def amq():
 
 
 def converter(amq, **overrides):
-    settings = {"send_data": True, "amq_topic": "/topic/test"}
+    settings = {"send_data": True, "amq_host": "localhost", "amq_port": "61113", "amq_topic": "/topic/test"}
     settings.update(overrides)
     conf = make_config(**settings)
     return wlcgConverter.WlcgConverter(conf, activemq_connection=amq)
@@ -70,14 +70,53 @@ def test_local_dump_appends_json_lines(amq, tmp_path):
     assert [line["operation"] for line in lines] == ["read", "write"]
 
 
+def replaced(level, value):
+    """The test record with moverInfo or moverInfo.protocolInfo replaced by value."""
+    raw = billing_record()
+    if level == "moverInfo":
+        raw["moverInfo"] = value
+    else:
+        raw["moverInfo"]["protocolInfo"] = value
+    return raw
+
+
+@pytest.mark.parametrize("value", [
+    None,                       # not JSON: decode_message gave None
+    [1, 2],                     # JSON, but not an object
+    "hello",
+    replaced("moverInfo", None),
+    replaced("moverInfo", ["not", "an", "object"]),
+    replaced("protocolInfo", None),
+    replaced("protocolInfo", "Xrootd"),
+])
+def test_malformed_messages_are_skipped(amq, value):
+    converter(amq).execute(Message(value))
+    assert amq.sent == []
+
+
+@pytest.mark.parametrize("payload, expected", [
+    (b'{"msgType": "request"}', {"msgType": "request"}),
+    (b'[1, 2]', [1, 2]),
+    (b'not json', None),
+    (b'\xff\xfe', None),
+    (b'', None),
+    (None, None),
+])
+def test_decode_message_never_raises(payload, expected):
+    assert wlcgConverter.decode_message(payload) == expected
+
+
 def test_conversion_error_is_logged_and_skipped(amq, monkeypatch, caplog):
     def broken(raw, conf):
         raise ValueError("boom")
 
     monkeypatch.setattr(wlcgConverter, "build_record", broken)
-    converter(amq).execute(Message(billing_record()))
+    converter(amq).execute(Message(billing_record(top={"pnfsid": "0000C22F09D0"})))
     assert amq.sent == []
     assert "could not be converted" in caplog.text
+    assert "0000C22F09D0" in caplog.text
+    # the log must not carry the user's identity
+    assert "/DC=" not in caplog.text and "FQANPrincipal" not in caplog.text
 
 
 def test_amq_errors_still_propagate(amq):

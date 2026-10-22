@@ -7,6 +7,17 @@ class ConfigError(Exception):
     pass
 
 
+# v1 switches; a blank one counts as absent and falls back to its default
+SWITCH_DEFAULTS = {
+    "local_dump": False,
+    "send_data": False,
+    "verbose": False,
+    "ip_filter_is_active": False,
+}
+
+KAFKA_KEYS = ("kafka_broker_incoming", "topic", "instance")
+
+
 class Config(dict):
     """
     The YAML config as a dict (empty values dropped, so every v1 key keeps working via
@@ -20,6 +31,7 @@ class Config(dict):
         if not isinstance(raw, dict):
             raise ConfigError("the config file must hold a YAML mapping")
         super().__init__({k: v for k, v in raw.items() if v is not None})
+        self._check_v1_keys()
 
         self.server_technology = self._string("server_technology", "dcache")
         self.server_site = self._required("server_site", "the WLCG site name, e.g. 'DESY-HH'")
@@ -28,12 +40,31 @@ class Config(dict):
         self.local_networks = self._networks("local_networks")
         self.strip_prefixes = self._prefixes("file_name_strip_prefixes")
 
+    def _check_v1_keys(self):
+        """Defaults for the v1 switches, and the keys the enabled outputs need."""
+        for key, default in SWITCH_DEFAULTS.items():
+            self.setdefault(key, default)
+            if not isinstance(self[key], bool):
+                raise ConfigError("'%s' must be True or False, got %r" % (key, self[key]))
+        self["protocol"] = self._string("protocol", "Xrootd")
+
+        missing = [key for key in KAFKA_KEYS if key not in self]
+        if self["local_dump"] and "path_to_converted_json_file" not in self:
+            missing.append("path_to_converted_json_file")
+        if self["send_data"]:
+            missing += [key for key in ("amq_host", "amq_topic") if key not in self]
+            if "amq_port" not in self and "amq_port_tls" not in self:
+                missing.append("amq_port")
+        if missing:
+            raise ConfigError("obligatory settings missing: %s" % ", ".join(missing))
+
     def _string(self, key, default):
         value = self.get(key, default)
         if not isinstance(value, str):
             # an unquoted 10.10 would silently become the float 10.1
             raise ConfigError("'%s' must be a quoted string, got %r" % (key, value))
-        return value.strip()
+        # a blank value means "use the default", like an empty one
+        return value.strip() or default
 
     def _required(self, key, what):
         value = self._string(key, "")

@@ -11,7 +11,8 @@ from wlcg.config import Config, ConfigError
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLE_CONFIG = os.path.join(ROOT, 'wlcgConverterPackage', 'wlcgConverter_config.yaml')
 
-MINIMAL = {"instance": "cms", "server_site": "DESY-HH", "server_version": "10.2.5"}
+KAFKA = {"kafka_broker_incoming": ["localhost:9092"], "topic": "billing-cms", "instance": "cms"}
+MINIMAL = dict(KAFKA, server_site="DESY-HH", server_version="10.2.5")
 
 
 def make(**overrides):
@@ -42,8 +43,10 @@ def test_explicit_values_are_stripped():
     assert (conf.server_technology, conf.server_site, conf.storage_instance) == ("dcache", "DESY-ZN", "cms-t2")
 
 
-def test_storage_instance_without_instance_is_empty():
-    assert Config({"server_site": "DESY-HH", "server_version": "10.2.5"}).storage_instance == ""
+@pytest.mark.parametrize("key", ["server_technology", "storage_instance"])
+def test_blank_optional_string_falls_back_to_default(key):
+    conf = make(**{key: "  "})
+    assert (conf.server_technology, conf.storage_instance) == ("dcache", "cms")
 
 
 @pytest.mark.parametrize("key", ["server_site", "server_version"])
@@ -51,6 +54,50 @@ def test_storage_instance_without_instance_is_empty():
 def test_obligatory_keys(key, value):
     with pytest.raises(ConfigError, match=key):
         make(**{key: value})
+
+
+def test_v1_switches_default_to_off():
+    raw = dict(MINIMAL, local_dump=None, send_data=None, verbose=None, ip_filter_is_active=None)
+    conf = Config(raw)
+    assert [conf[k] for k in ("local_dump", "send_data", "verbose", "ip_filter_is_active")] == [False] * 4
+    assert conf["protocol"] == "Xrootd"
+
+
+@pytest.mark.parametrize("value, expected", [(" Xrootd ", "Xrootd"), ("  ", "Xrootd"), ("Http", "Http")])
+def test_protocol_is_cleaned(value, expected):
+    assert make(protocol=value)["protocol"] == expected
+
+
+@pytest.mark.parametrize("key", ["local_dump", "send_data", "verbose", "ip_filter_is_active"])
+def test_v1_switch_must_be_boolean(key):
+    # a quoted "False" would be truthy
+    with pytest.raises(ConfigError, match=key):
+        make(**{key: "False"})
+
+
+@pytest.mark.parametrize("key", ["kafka_broker_incoming", "topic", "instance"])
+def test_kafka_keys_are_obligatory(key):
+    with pytest.raises(ConfigError, match=key):
+        make(**{key: None})
+
+
+def test_local_dump_needs_a_path():
+    with pytest.raises(ConfigError, match="path_to_converted_json_file"):
+        make(local_dump=True)
+    assert make(local_dump=True, path_to_converted_json_file="/tmp/out.json")["local_dump"] is True
+
+
+@pytest.mark.parametrize("missing", ["amq_host", "amq_topic", "amq_port"])
+def test_send_data_needs_the_broker(missing):
+    amq = {"amq_host": "localhost", "amq_topic": "/topic/test", "amq_port": "61113"}
+    amq[missing] = None
+    with pytest.raises(ConfigError, match=missing):
+        make(send_data=True, **amq)
+
+
+def test_send_data_accepts_only_the_tls_port():
+    conf = make(send_data=True, amq_host="localhost", amq_topic="/topic/test", amq_port_tls="61123")
+    assert conf["send_data"] is True
 
 
 def test_unquoted_version_is_rejected():
@@ -65,8 +112,8 @@ def test_config_must_be_a_mapping(raw):
         Config(raw)
 
 
-def test_empty_file_reports_the_missing_site():
-    with pytest.raises(ConfigError, match="server_site"):
+def test_empty_file_reports_the_missing_settings():
+    with pytest.raises(ConfigError, match="kafka_broker_incoming, topic, instance"):
         Config(None)
 
 
@@ -99,17 +146,16 @@ def test_bad_prefixes(value):
 def test_example_config_only_lacks_the_obligatory_values():
     with open(EXAMPLE_CONFIG) as f:
         raw = yaml.safe_load(f)
-    conf = Config(dict(raw, server_site="DESY-HH", server_version="10.2.5"))
+    conf = Config(dict(raw, server_site="DESY-HH", server_version="10.2.5", **KAFKA))
     assert conf.server_technology == "dcache"
     assert conf.strip_prefixes == []
 
 
 def test_main_exits_2_on_bad_config(tmp_path, monkeypatch, caplog):
     config_file = tmp_path / "config.yaml"
-    config_file.write_text(yaml.safe_dump({
-        "server_version": "10.2.5",
-        "config::logging": {"version": 1, "disable_existing_loggers": False},
-    }))
+    raw = dict(KAFKA, server_version="10.2.5")
+    raw["config::logging"] = {"version": 1, "disable_existing_loggers": False}
+    config_file.write_text(yaml.safe_dump(raw))
     monkeypatch.setattr(sys, "argv", ["wlcgConverter", str(config_file)])
     with caplog.at_level(logging.ERROR, logger="wlcgConverter"), pytest.raises(SystemExit) as exit_info:
         wlcgConverter.main()

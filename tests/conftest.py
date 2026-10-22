@@ -56,6 +56,8 @@ DOOR_RECORD = {
 
 BASE_CONFIG = {
     "protocol": "Xrootd",
+    "kafka_broker_incoming": ["localhost:9092"],
+    "topic": "billing-test",
     "instance": "atlas",
     "server_site": "DESY-HH",
     "server_version": "10.2.5",

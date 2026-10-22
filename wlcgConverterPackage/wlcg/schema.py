@@ -61,7 +61,10 @@ def _timing(raw, mover):
             end_time = int(round(end_millis))
             transfer_time = mover.get("transferTime")
             if transfer_time is not None:
-                start_time = end_time - int(transfer_time)
+                try:
+                    start_time = end_time - int(transfer_time)
+                except (TypeError, ValueError):
+                    logger.debug("'transferTime' is not a number: %r", transfer_time)
     return {"start_time": start_time, "end_time": end_time}
 
 
@@ -108,8 +111,16 @@ def _endpoints(mover, protocol_info):
     }
 
 
+def _status(raw, mover):
+    """The door's status is the result the client saw; the mover's is the fallback."""
+    for status in (raw.get("status"), mover.get("status")):
+        if isinstance(status, dict) and status.get("code") is not None:
+            return status
+    return {}
+
+
 def _file_and_status(raw, mover):
-    status = mover.get("status") or {}
+    status = _status(raw, mover)
     file_path = raw.get("transferPath") or mover.get("transferPath") or ""
     return {
         "file_path": file_path,

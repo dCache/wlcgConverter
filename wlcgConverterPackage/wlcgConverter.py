@@ -25,6 +25,23 @@ from wlcg.schema import build_record
 logger = logging.getLogger('wlcgConverter')
 
 
+def decode_message(value):
+    """Kafka value deserializer: the billing JSON, or None if the message is not JSON."""
+    try:
+        return json.loads(value.decode('utf-8'))
+    except (AttributeError, UnicodeDecodeError, ValueError):
+        # raising here would kill the consumer loop, and a restart would hit the same offset
+        return None
+
+
+def is_wanted(record, protocol):
+    """A door request record of the configured protocol; null levels count as absent."""
+    mover = record.get("moverInfo") or {}
+    protocol_info = mover.get("protocolInfo") if isinstance(mover, dict) else None
+    protocol_info = protocol_info if isinstance(protocol_info, dict) else {}
+    return record.get("msgType") == "request" and protocol_info.get("protocol") == protocol
+
+
 class WlcgConverter:
 
     def __init__(self, conf={}, activemq_connection=None):
@@ -33,15 +50,21 @@ class WlcgConverter:
 
     def execute(self, message):
         message_data = message.value
+        if not isinstance(message_data, dict):
+            # not JSON at all (decode_message gave None), or JSON that is not an object
+            logger.warning("Skipped a Kafka message that is not a JSON object.")
+            return
         # failed transfers are sent too, with their native status code and message
-        if message_data.get('msgType') == 'request' and \
-                message_data.get("moverInfo", {}).get("protocolInfo", {}).get("protocol") == self.conf["protocol"]:
+        if is_wanted(message_data, self.conf["protocol"]):
 
             try:
                 wlcg_dict = build_record(message_data, self.conf)
             except Exception:
-                # one malformed record must not stop the converter; AMQ errors below still do
-                logger.exception("Skipped a billing record that could not be converted: %s", message_data)
+                # one malformed record must not stop the converter; AMQ errors below still do.
+                # Log only non-personal context: the record holds the user's DN and email.
+                logger.exception("Skipped a billing record that could not be converted "
+                                 "(pnfsid=%s, date=%s, cell=%s)", message_data.get("pnfsid"),
+                                 message_data.get("date"), message_data.get("cellName"))
                 return
 
             if self.conf["local_dump"]:
@@ -146,7 +169,7 @@ class CustomKafkaConsumer:
                                           auto_offset_reset=self.msg_offset,
                                           group_id=self.group_id,
                                           bootstrap_servers=self.servers,
-                                          value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+                                          value_deserializer=decode_message)
             logger.info("Connection to Kafka established.")
         except Exception as e:
             logger.error("Error initializing KafkaConsumer: {}".format(e))
