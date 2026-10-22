@@ -11,17 +11,16 @@ import argparse
 import json
 import logging
 import logging.config
-import re
 import ssl
 import sys
-from ipaddress import ip_address, IPv6Address, IPv4Address, ip_network
+from ipaddress import ip_address, ip_network
 
 import stomp
 import yaml
-from dateutil.parser import *
 from kafka import KafkaConsumer
 
 from wlcg.config import Config, ConfigError
+from wlcg.schema import build_record
 
 logger = logging.getLogger('wlcgConverter')
 
@@ -34,11 +33,16 @@ class WlcgConverter:
 
     def execute(self, message):
         message_data = message.value
+        # failed transfers are sent too, with their native status code and message
         if message_data.get('msgType') == 'request' and \
-                message_data.get('status', {}).get('code') == 0 and \
                 message_data.get("moverInfo", {}).get("protocolInfo", {}).get("protocol") == self.conf["protocol"]:
 
-            wlcg_dict = self.convert_desy_to_WLCG(message_data)
+            try:
+                wlcg_dict = build_record(message_data, self.conf)
+            except Exception:
+                # one malformed record must not stop the converter; AMQ errors below still do
+                logger.exception("Skipped a billing record that could not be converted: %s", message_data)
+                return
 
             if self.conf["local_dump"]:
                 with open(self.conf["path_to_converted_json_file"], 'a') as wlcg_json_output_file:
@@ -66,16 +70,6 @@ class WlcgConverter:
                     logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
 
 
-    def __split_ip_and_port(self, local_endpoint) -> str:
-        if local_endpoint is not None:
-            if local_endpoint.count(':') < 2:
-                ipv4 = local_endpoint.split(':')[0]
-                return ipv4
-            elif local_endpoint.count(':') > 1:
-                ipv6 = re.split('[\[\]]', local_endpoint)[1]
-                return ipv6
-        return None
-
     def __ip_matches_subnet(self, client_ip_addr, network_addr, network_cidr):
         '''
         :param client_ip_addr: The IPv4 or IPv6 address of the requesting client (key: "host")
@@ -95,117 +89,6 @@ class WlcgConverter:
 
         except ValueError as ve:
             logger.warning("Invalid Argument: %s", ve)
-
-    def convert_desy_to_WLCG(self, dict_file):
-        '''
-        Converts "site"-formatted json billing records to wlcg-formatted json billing records.
-        (introducing new 'key:value' mappings in the converted records)
-        :param dict_file: python dictionary file
-        :return: a python dictionary with key:value mappings as required in the wlcg-format
-        '''
-        wlcg_dict = {}
-        # check if msg_type==request and protocol==Xrootd, otherwise return empty dict.
-        if "msgType" in dict_file.keys():
-            if dict_file.get("msgType") != "request":
-                logger.debug("Skipped: JSON entry 'msg_type' was not 'request'.")
-                return wlcg_dict
-            if "moverInfo" in dict_file.keys():
-                if dict_file.get("moverInfo").get("protocolInfo", {}).get("protocol") != self.conf["protocol"]:
-                    logger.debug("Skipped: JSON entry 'protocol' was not '{}'.".format(self.conf["protocol"]))
-                    return wlcg_dict
-            else:
-                logger.debug("Error: Unable to identify 'protocol'")
-                return wlcg_dict
-        else:
-            logger.debug("Error: Unable to identify 'message type'")
-            return wlcg_dict
-        # ----------------------------------------------------------------------------------------------------
-        host = dict_file.get("moverInfo").get("protocolInfo").get("host")
-        local_endpoint_raw = dict_file.get("moverInfo").get("localEndpoint")
-        local_endpoint = self.__split_ip_and_port(local_endpoint_raw)
-
-        if dict_file.get("moverInfo").get("isWrite") == "read":
-            wlcg_dict["dst_hostname"] = host if host is not None else None
-            wlcg_dict["src_hostname"] = local_endpoint if local_endpoint is not None else None
-            wlcg_dict["bytes_in"] = dict_file.get("moverInfo").get("transferSize")
-            wlcg_dict["bytes_out"] = None
-        elif dict_file.get("moverInfo").get("isWrite") == "write":
-            wlcg_dict["dst_hostname"] = local_endpoint if local_endpoint is not None else None
-            wlcg_dict["src_hostname"] = host if host is not None else None
-            wlcg_dict["bytes_in"] = None
-            wlcg_dict["bytes_out"] = dict_file.get("moverInfo").get("transferSize")
-        else:
-            wlcg_dict["dst_hostname"] = None
-            wlcg_dict["src_hostname"] = None
-            wlcg_dict["bytes_in"] = None
-            wlcg_dict["bytes_out"] = None
-            logger.warning("WLCGConverter: dst_hostname and src_hostname could not be determined!")
-        # ----------------------------------------------------------------------------------------------------
-        wlcg_dict["protocol"] = dict_file.get("moverInfo", {}).get("protocolInfo", {}).get("protocol")
-        # ----------------------------------------------------------------------------------------------------
-        date = dict_file.get("date")
-        if date is not None:
-            try:
-                datetime_format = parse(date)
-            except ValueError:
-                logger.debug("Error: 'date' format is not ISO.")
-                wlcg_dict["start_time"] = None
-                wlcg_dict["end_time"] = None
-            else:
-                transfer_time = dict_file.get("moverInfo").get("transferTime")
-                if transfer_time is not None:
-                    # convert unix epoch timestamp in seconds with millis into millis and subtract the transfertime(which is in millis by default)
-                    start_unix_timestamp_millis = int(datetime_format.timestamp() * 1000 - transfer_time)
-                    end_unix_timestamp_millis = int(datetime_format.timestamp() * 1000)
-
-                    wlcg_dict["start_time"] = start_unix_timestamp_millis
-                    wlcg_dict["end_time"] = end_unix_timestamp_millis
-                else:
-                    wlcg_dict["start_time"] = None
-                    wlcg_dict["end_time"] = None
-        else:
-            wlcg_dict["start_time"] = None
-            wlcg_dict["end_time"] = None
-        # ----------------------------------------------------------------------------------------------------
-        wlcg_dict["status"] = dict_file.get("moverInfo").get("status", {}).get("code")
-        wlcg_dict["error_category"] = dict_file.get("moverInfo").get("status")
-        wlcg_dict["error_message"] = dict_file.get("moverInfo").get("status", {}).get("msg")
-        # ----------------------------------------------------------------------------------------------------
-        subject = dict_file.get("subject")
-        if subject is not None:
-            for entry in subject:
-                if "FQANPrincipal" in entry:
-                    try:
-                        wlcg_dict["vo"] = re.split('[/\],]', entry)[1]
-                        break
-                    except IndexError:
-                        wlcg_dict["vo"] = None
-                        break
-        else:
-            wlcg_dict["vo"] = None
-        # ----------------------------------------------------------------------------------------------------
-        wlcg_dict["activity"] = "Value_TBD"
-        # ----------------------------------------------------------------------------------------------------
-        if host is not None:
-            try:
-                ip_addr = ip_address(host)
-                if type(ip_addr) is IPv6Address:
-                    wlcg_dict["ipv6"] = True
-                else:
-                    wlcg_dict["ipv6"] = False
-            except ValueError:
-                wlcg_dict["ipv6"] = False
-
-            try:
-                ip_addr = ip_address(host)
-                if type(ip_addr) is IPv6Address or type(ip_addr) is IPv4Address:
-                    wlcg_dict["ipver"] = str(ip_addr.version)
-            except ValueError:
-                wlcg_dict["ipver"] = "unknown"
-        # ----------------------------------------------------------------------------------------------------
-        logger.debug(wlcg_dict)
-
-        return wlcg_dict
 
 # ************************************************************************************************************
 
