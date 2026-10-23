@@ -21,6 +21,15 @@ PROTOCOL_NAMES = {
     "https": "https",
 }
 
+TOKEN_PRINCIPALS = {
+    "OidcSubjectPrincipal",
+    "JwtJtiPrincipal",
+    "JwtSubPrincipal",
+    "OpenIdGroupPrincipal",
+    "OpenIdClientPrincipal",
+    "OAuthProviderPrincipal",
+}
+
 UNKNOWN = "unknown"
 
 
@@ -38,10 +47,7 @@ def build_record(raw, conf):
     record.update(_timing(raw, mover))
     record.update(_protocol(mover, protocol_info, conf))
     record.update(_endpoints(mover, protocol_info))
-    # filled in by later steps of the v2 plan
-    record["vo"] = UNKNOWN
-    record["activity"] = UNKNOWN
-    record["auth_method"] = UNKNOWN
+    record.update(_identity(raw))
     record.update(_file_and_status(raw, mover))
     logger.debug(record)
     return record
@@ -108,6 +114,61 @@ def _endpoints(mover, protocol_info):
         "src_ip": src_ip,
         "dst_hostname": dst_ip,
         "dst_ip": dst_ip,
+    }
+
+
+def _principal(entry):
+    """'FQANPrincipal[/atlas,primary]' -> ('FQANPrincipal', '/atlas,primary'); a bare DN -> (None, dn)."""
+    entry = str(entry)
+    bracket = entry.find('[')
+    if bracket > 0 and entry.endswith(']'):
+        return entry[:bracket], entry[bracket + 1:-1]
+    return None, entry
+
+
+def vo_from_subject(subject):
+    """
+    VO of the primary FQAN, else of the first FQAN; None if there is none.
+    Only the VO name is returned, never the FQAN's groups or roles.
+    """
+    first = None
+    for entry in subject:
+        name, value = _principal(entry)
+        if name != "FQANPrincipal":
+            continue
+        parts = value.split(',')
+        vo = parts[0].strip('/').split('/')[0].lower()
+        if not vo:
+            continue
+        if "primary" in parts[1:]:
+            return vo
+        if first is None:
+            first = vo
+    return first
+
+
+def auth_method(subject):
+    """token / x509 / none / unknown, from the principals in the billing subject."""
+    names = [_principal(entry) for entry in subject]
+    if any(name in TOKEN_PRINCIPALS for name, _ in names):
+        return "token"
+    if any(name == "FQANPrincipal" or (name is None and value.startswith('/')) for name, value in names):
+        return "x509"
+    if all(name == "Origin" for name, _ in names):
+        return "none"
+    return UNKNOWN
+
+
+def _identity(raw):
+    subject = raw.get("subject")
+    if not isinstance(subject, list):
+        # no subject at all says nothing about how the client authenticated
+        return {"vo": UNKNOWN, "activity": UNKNOWN, "auth_method": UNKNOWN}
+    return {
+        "vo": vo_from_subject(subject) or UNKNOWN,
+        # decoded from the SciTag in a later step of the v2 plan
+        "activity": UNKNOWN,
+        "auth_method": auth_method(subject),
     }
 
 
