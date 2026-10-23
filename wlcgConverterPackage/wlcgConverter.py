@@ -78,7 +78,7 @@ class WlcgConverter:
                     if not self.__ip_matches_subnet(client_ip,
                                                 self.conf["ipv4_network_address"],
                                                 self.conf["ipv4_cidr"]) \
-                                                or not self.__ip_matches_subnet(client_ip,
+                                                and not self.__ip_matches_subnet(client_ip,
                                                 self.conf["ipv6_network_address"],
                                                 self.conf["ipv6_cidr"]):
                         self.activemq_connection.send(destination=self.conf["amq_topic"],
