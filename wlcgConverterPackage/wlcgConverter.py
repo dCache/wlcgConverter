@@ -11,7 +11,6 @@ import argparse
 import json
 import logging
 import logging.config
-import ssl
 import sys
 from ipaddress import ip_address, ip_network
 
@@ -118,24 +117,29 @@ class WlcgConverter:
 
 def __connect_2_activemq(conf) -> object:
 
+    # Always TLS, and the broker must prove who it is: without ca_certs stomp.py skips the
+    # certificate and hostname checks. Config has checked these keys at startup.
     amq_host = conf["amq_host"]
-    # empty YAML values are dropped from conf, so amq_port_tls may be absent
-    amq_port = conf.get("amq_port_tls") or conf["amq_port"]
+    broker = [(amq_host, int(conf["amq_port_tls"]))]
 
-    conn = stomp.Connection12([(amq_host, int(amq_port))])
+    conn = stomp.Connection12(broker)
 
+    # ssl_version is left to stomp.py: its default (PROTOCOL_TLS_CLIENT) checks the hostname,
+    # while an explicit PROTOCOL_TLSv1_2 context does not
     if "path_to_cert" in conf and "path_to_key" in conf:
         conn.set_ssl(
-            for_hosts=[(amq_host, int(amq_port))],
+            for_hosts=broker,
             key_file=conf["path_to_key"],
             cert_file=conf["path_to_cert"],
-            ssl_version=ssl.PROTOCOL_TLSv1_2)
+            ca_certs=conf["amq_ca_certs"])
         conn.connect(wait=True)
-        logger.info("AMQ SSL: certificate based authentication is used.")
+        logger.info("AMQ TLS: certificate based authentication is used.")
 
     elif "username" in conf and "password" in conf:
+        # never send the password, or the records, without TLS
+        conn.set_ssl(for_hosts=broker, ca_certs=conf["amq_ca_certs"])
         conn.connect(conf["username"], conf["password"], wait=True)
-        logger.info("AMQ Plain: user-password based authentication is used.")
+        logger.info("AMQ TLS: user-password based authentication is used.")
     else:
         raise IOError(
             "ERROR: The input arguments do not include a valid authentication tuple \

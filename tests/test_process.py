@@ -26,7 +26,9 @@ def amq():
 
 
 def converter(amq, **overrides):
-    settings = {"send_data": True, "amq_host": "localhost", "amq_port": "61113", "amq_topic": "/topic/test"}
+    # amq_ca_certs only has to exist here: the AMQ connection itself is faked
+    settings = {"send_data": True, "amq_host": "localhost", "amq_port_tls": "61123", "amq_topic": "/topic/test",
+                "amq_ca_certs": __file__, "username": "u", "password": "p"}
     settings.update(overrides)
     conf = make_config(**settings)
     return wlcgConverter.WlcgConverter(conf, activemq_connection=amq)

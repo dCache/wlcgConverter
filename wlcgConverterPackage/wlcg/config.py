@@ -1,5 +1,7 @@
 """Validated configuration for wlcgConverter."""
 
+import os
+
 from .net import parse_network
 
 
@@ -16,6 +18,7 @@ SWITCH_DEFAULTS = {
 }
 
 KAFKA_KEYS = ("kafka_broker_incoming", "topic", "instance")
+AMQ_KEYS = ("amq_host", "amq_topic", "amq_port_tls", "amq_ca_certs")
 
 
 class Config(dict):
@@ -52,11 +55,19 @@ class Config(dict):
         if self["local_dump"] and "path_to_converted_json_file" not in self:
             missing.append("path_to_converted_json_file")
         if self["send_data"]:
-            missing += [key for key in ("amq_host", "amq_topic") if key not in self]
-            if "amq_port" not in self and "amq_port_tls" not in self:
-                missing.append("amq_port")
+            # records go to the broker over TLS only, verified against amq_ca_certs
+            missing += [key for key in AMQ_KEYS if key not in self]
+            has_cert = "path_to_cert" in self and "path_to_key" in self
+            has_password = "username" in self and "password" in self
+            if not (has_cert or has_password):
+                missing.append("path_to_cert + path_to_key, or username + password")
         if missing:
             raise ConfigError("obligatory settings missing: %s" % ", ".join(missing))
+
+        if self["send_data"]:
+            for key in ("amq_ca_certs", "path_to_cert", "path_to_key"):
+                if key in self and not os.path.isfile(str(self[key])):
+                    raise ConfigError("'%s': no such file: %s" % (key, self[key]))
 
     def _string(self, key, default):
         value = self.get(key, default)

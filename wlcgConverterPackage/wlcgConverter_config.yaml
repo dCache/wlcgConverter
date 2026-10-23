@@ -11,8 +11,9 @@ password:
 
 #config::AMQ :
 amq_host: "dashb-lb-mb.cern.ch"
-amq_port: "61113"
-amq_port_tls: "61123"
+amq_port: "61113"                                       #(not used) records are only sent over TLS, to <amq_port_tls>
+amq_port_tls: "61123"                                   #(obligatory if send_data is True) TLS port of the broker
+amq_ca_certs:                                           #(obligatory if send_data is True)<-----PEM file with the CA certificates that signed the broker's certificate; without it the broker is not verified. E.g.: "/etc/wlcg_converter/certs/cern-ca.pem"
 amq_topic: "/topic/xrootd.dcache"
 
 #config::ip_filter :

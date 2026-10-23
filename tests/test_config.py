@@ -87,17 +87,7 @@ def test_local_dump_needs_a_path():
     assert make(local_dump=True, path_to_converted_json_file="/tmp/out.json")["local_dump"] is True
 
 
-@pytest.mark.parametrize("missing", ["amq_host", "amq_topic", "amq_port"])
-def test_send_data_needs_the_broker(missing):
-    amq = {"amq_host": "localhost", "amq_topic": "/topic/test", "amq_port": "61113"}
-    amq[missing] = None
-    with pytest.raises(ConfigError, match=missing):
-        make(send_data=True, **amq)
-
-
-def test_send_data_accepts_only_the_tls_port():
-    conf = make(send_data=True, amq_host="localhost", amq_topic="/topic/test", amq_port_tls="61123")
-    assert conf["send_data"] is True
+# the AMQ settings send_data needs are tested in test_amq.py
 
 
 def test_unquoted_version_is_rejected():
