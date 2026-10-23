@@ -10,6 +10,7 @@ CORE_FIELDS = [
     "vo", "activity", "auth_method",
     "file_path", "file_name", "file_size", "transferred_volume",
     "status_code", "error_message", "storage_internal_traffic",
+    "src_site", "dst_site", "traffic_scope",
 ]
 
 POOL = "2001:638:700:1062::1:d8"
@@ -42,6 +43,10 @@ def test_read_record(conf):
         "status_code": 0,
         "error_message": "",
         "storage_internal_traffic": False,
+        # no local_networks in the test config: the client end resolves to its IP
+        "src_site": "DESY-HH",
+        "dst_site": CLIENT,
+        "traffic_scope": "UNKNOWN",
     }
 
 

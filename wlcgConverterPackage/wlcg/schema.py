@@ -10,7 +10,7 @@ import logging
 
 from dateutil.parser import parse as parse_date
 
-from .net import canonical_ip, ip_version, split_endpoint
+from .net import canonical_ip, ip_version, match_networks, split_endpoint
 
 logger = logging.getLogger('wlcgConverter')
 
@@ -49,6 +49,7 @@ def build_record(raw, conf):
     record.update(_endpoints(mover, protocol_info))
     record.update(_identity(raw))
     record.update(_file_and_status(raw, mover))
+    record.update(_sites(mover, protocol_info, conf))
     logger.debug(record)
     return record
 
@@ -117,6 +118,30 @@ def _endpoints(mover, protocol_info):
     }
 
 
+def _sites(mover, protocol_info, conf):
+    """
+    The pool end is server_site. The client end is server_site when the client IP is in
+    local_networks, otherwise it resolves to the client IP.
+    """
+    client = protocol_info.get("host")
+    lan = match_networks(client, conf.local_networks) is not None
+    client_site = conf.server_site if lan else canonical_ip(client)
+
+    direction = mover.get("isWrite")
+    if direction == "read":
+        src_site, dst_site = conf.server_site, client_site
+    elif direction == "write":
+        src_site, dst_site = client_site, conf.server_site
+    else:
+        src_site = dst_site = ""
+
+    if lan:
+        return {"src_site": src_site, "dst_site": dst_site, "traffic_scope": "LAN", "remote_access": False}
+    # an IP is not a site name, so whether the client is remote is not known:
+    # traffic_scope says UNKNOWN and remote_access is not set
+    return {"src_site": src_site, "dst_site": dst_site, "traffic_scope": "UNKNOWN"}
+
+
 def _principal(entry):
     """'FQANPrincipal[/atlas,primary]' -> ('FQANPrincipal', '/atlas,primary'); a bare DN -> (None, dn)."""
     entry = str(entry)
@@ -166,7 +191,7 @@ def _identity(raw):
         return {"vo": UNKNOWN, "activity": UNKNOWN, "auth_method": UNKNOWN}
     return {
         "vo": vo_from_subject(subject) or UNKNOWN,
-        # decoded from the SciTag in a later step of the v2 plan
+        # the SciTag is not decoded yet
         "activity": UNKNOWN,
         "auth_method": auth_method(subject),
     }
@@ -185,7 +210,7 @@ def _file_and_status(raw, mover):
     file_path = raw.get("transferPath") or mover.get("transferPath") or ""
     return {
         "file_path": file_path,
-        # prefix stripping comes with a later step; until then the PFN
+        # the PFN, unchanged
         "file_name": file_path,
         "file_size": raw.get("fileSize"),
         "transferred_volume": mover.get("transferSize"),
