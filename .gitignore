@@ -13,3 +13,4 @@ output_test.json
 
 # private notes, plans and test data; never committed
 local/
+CLAUDE.md

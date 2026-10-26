@@ -1,13 +1,28 @@
 # this unit file is kept in /etc/systemd/system
-# Version: 1.0 (2024-01-10)
+# Version: 2.0 (2026-10-26)
 
 [Unit]
 Description=Wlcg_Converter
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/wlcgConverter /etc/wlcg_converter/wlcgConverter_config.yaml
 Restart=always
+# wait between restarts, so a failing start does not reconnect to Kafka, the broker
+# and scitags.org many times a second
+RestartSec=30
+
+# run as a dedicated user, not root; the user must be able to read the config and certificates
+User=wlcgconverter
+Group=wlcgconverter
+# files the converter creates (log, local dump, SciTag cache) are readable by that user only
+UMask=0077
+NoNewPrivileges=yes
+# /var/log/wlcg_converter and /var/lib/wlcg_converter, created and owned by the user
+LogsDirectory=wlcg_converter
+StateDirectory=wlcg_converter
 
 [Install]
 WantedBy=multi-user.target

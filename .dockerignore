@@ -20,3 +20,11 @@ Thumbs.db
 .vscode
 .idea
 
+# never part of an image: secrets, real billing data, private notes, local environments
+.env
+billing_records/
+local/
+venv/
+output_test.json
+*.log
+

@@ -1,20 +1,23 @@
 # WlcgConverter setup guide
-#### Version: 1.1 (2024-02-12) 
+#### Version: 2.0 (2026-10-26) 
 **Important Note:** dCache v9.2 is a minimum requirement for the successful operation of the wlcgConverter. <br>
 Additionally a running Apache Kafka installation is required. More information on configuring dCache for the use with Kafka can be found [here](https://www.dcache.org/manuals/Book-9.2/kafkaproducer.shtml).
 <br>
 
-The "wlcgConverter" is a software tool that converts "site"-formatted json billing records to wlcg-formatted json billing records (providing for new 'key:value' mappings in the converted records).  
+The "wlcgConverter" reads dCache billing records from Kafka and converts each xroot transfer into one record of the WLCG transfer-monitoring format. The fields of that record and how each is derived are described in [docs/RECORD.md](docs/RECORD.md).  
 It is run as a systemd service on any linux machine, that has a network connection to Kafka brokers providing the billing records.<br>
 The tool also offers further functionalities, such as:
-- sending the converted data via an encrypted channel (provided that a certificate and key file have been configured)
+- sending the converted records to CERN's message broker over TLS, after verifying the broker's certificate
 - ip filtering of configurable subnets, that are to be excluded from transmission
+- writing the converted records to a local file
 
+**Version 2.0 changes the record format.** The v1 fields `bytes_in`, `bytes_out`, `status`, `error_category` and `ipv6` are no longer sent; see [CHANGELOG.md](CHANGELOG.md).
 
-To establish an encrypted transmission channel, three essential things must be provided beforehand:
+To send records to CERN, these must be provided beforehand:
 - a DN has to be whitelisted at Cern (Mail your request together with a DN to: [wlcgmon-tf@cern.ch](mailto:wlcgmon-tf@cern.ch))
 - a certificate file
 - a corresponding key file
+- a file with the CA certificates that signed the broker's certificate, in PEM format (setting `amq_ca_certs`)
 
 ## Getting started
 
@@ -52,6 +55,8 @@ pip3 install -r requirements.txt
 - Read the commentaries carefully. Since changing some optional
 fields may make others obligatory.
 - Please do not enter or change information in fields that do not have commentaries indicating to do so.  
+- Version 2.0 adds obligatory settings: `server_site` (the WLCG site name of this storage) and `server_version` (the dCache release). With `send_data: True`, `amq_port_tls` and `amq_ca_certs` are obligatory as well; records are only sent over TLS.
+- The converter checks the configuration at startup and exits with code 2, naming the setting, if one is missing or invalid.
 
 
 
@@ -70,6 +75,13 @@ cp wlcgConverter.service /etc/systemd/system/
 mkdir /etc/wlcg_converter/
 cp wlcgConverter_config.yaml  /etc/wlcg_converter/
 ```
+The service runs as the user `wlcgconverter`, not as root. Create it, and let it read the configuration and the certificate files, which may contain secrets:
+```
+useradd -r -s /sbin/nologin wlcgconverter
+chown root:wlcgconverter /etc/wlcg_converter/wlcgConverter_config.yaml
+chmod 640 /etc/wlcg_converter/wlcgConverter_config.yaml
+```
+Give the certificate, key and CA files the same group and mode. systemd creates `/var/log/wlcg_converter/` for the log file and `/var/lib/wlcg_converter/` for the optional `scitags_cache_file`, owned by that user; files the service writes there are readable by that user only. With `local_dump: True`, put `path_to_converted_json_file` in a directory the user can write, e.g. `/var/lib/wlcg_converter/`.
 ## How to start the wlcgConverter service
 Run the following commands as root:
 ```

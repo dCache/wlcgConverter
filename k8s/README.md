@@ -9,12 +9,13 @@
      --from-file=wlcgConverter_config.yaml=/path/to/your/wlcgConverter_config.yaml
    ```
 
-2. **Create a Secret with your certificates:**
+2. **Create a Secret with your certificates and the broker's CA certificates:**
    ```bash
    # Create secret with your certificate files
    kubectl create secret generic wlcg-converter-certs \
      --from-file=cert.pem=/path/to/your/cert.pem \
-     --from-file=key.pem=/path/to/your/key.pem
+     --from-file=key.pem=/path/to/your/key.pem \
+     --from-file=broker-ca.pem=/path/to/the/broker-ca.pem
    ```
 
 3. **Deploy the application:**
@@ -30,7 +31,9 @@ The entire `wlcgConverter_config.yaml` file is provided as a Secret, which is mo
 - `topic`: Kafka topic name
 - `instance`: Your site instance name
 - `send_data`: Set to `true` to enable data transmission
-- `amq_host`, `amq_port`, `amq_topic`: AMQ configuration
+- `amq_host`, `amq_port_tls`, `amq_topic`, `amq_ca_certs`: AMQ configuration; records are only sent over TLS
+- `server_site`, `server_version`: obligatory settings of the record (see `docs/RECORD.md`)
+- `scitags_cache_file`: optional; `/var/lib/wlcg_converter/scitags.json` is on a writable volume
 
 ### Certificate-based Authentication
 Certificates are mounted separately to `/etc/wlcg_converter/certs/`. Update your config file to reference the mounted certificate files:
@@ -38,7 +41,10 @@ Certificates are mounted separately to `/etc/wlcg_converter/certs/`. Update your
 ```yaml
 path_to_cert: /etc/wlcg_converter/certs/cert.pem
 path_to_key: /etc/wlcg_converter/certs/key.pem
+amq_ca_certs: /etc/wlcg_converter/certs/broker-ca.pem
 ```
+
+`broker-ca.pem` holds the CA certificates that signed the broker's certificate, in PEM format. The converter verifies the broker against them before it logs in.
 
 **Note:** The wlcgConverter application reads the YAML config file directly, so put all your actual values in the config file. The certificates are mounted as separate files that you can reference by path.
 

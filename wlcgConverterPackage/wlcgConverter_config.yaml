@@ -1,20 +1,20 @@
 ###################wlcgConverter config file ###########################
-#  Version: 1.0 (2024-01-10)
+#  Version: 2.0 (2026-10-26)
 
-#config::authentication :
+#config::authentication : ------------------one of the two logins is obligatory if send_data is True; both use TLS------------------------
 #x509 :
-path_to_cert:               #(obligatory)<-----MUST be provided for encrypted transmission. E.g.:"/path/to/your/cert_file" (obligatory)
-path_to_key:                #(obligatory)<-----MUST be provided for encrypted transmission. E.g.:"/path/to/your/key_file" (obligatory)
+path_to_cert:               #<-----client certificate for the broker login; used when path_to_key is set too. E.g.:"/etc/wlcg_converter/certs/hostcert.pem"
+path_to_key:                #<-----key of that certificate. E.g.:"/etc/wlcg_converter/certs/hostkey.pem"
 #passw_auth :
-username:
-password:  
+username:                   #<-----used when no certificate and key are set
+password:
 
 #config::AMQ :
-amq_host: "dashb-lb-mb.cern.ch"
-amq_port: "61113"                                       #(not used) records are only sent over TLS, to <amq_port_tls>
+amq_host: "dashb-lb-mb.cern.ch"                         #(obligatory if send_data is True) the broker's host name; its certificate must be issued for this name
+amq_port: "61113"                                    #(not used) records are only sent over TLS, to <amq_port_tls>
 amq_port_tls: "61123"                                   #(obligatory if send_data is True) TLS port of the broker
 amq_ca_certs:                                           #(obligatory if send_data is True)<-----PEM file with the CA certificates that signed the broker's certificate; without it the broker is not verified. E.g.: "/etc/wlcg_converter/certs/cern-ca.pem"
-amq_topic: "/topic/xrootd.dcache"
+amq_topic: "/topic/xrootd.dcache"                       #(obligatory if send_data is True)
 
 #config::ip_filter :
 ip_filter_is_active: False                             #(optional)<------configure if ip filtering of specified subnets is desired. (optional)
@@ -24,10 +24,10 @@ ipv6_network_address :                          #if <ip_filter_is_active> is set
 ipv6_cidr :                                                 #if <ip_filter_is_active> is set to True, a  netmask in cidr notation MUST be provided. E.g.: '48'
 
 #config::options :
-protocol: "Xrootd"
-local_dump: False                                      #(optional) if set to True  a local dump of the converted json is made to a location specified under 'path_to_converted_json_file '(optional)
+protocol: "Xrootd"                                     #(optional) default: Xrootd; billing records of other protocols are skipped
+local_dump: False                                     #(optional) if set to True  a local dump of the converted json is made to a location specified under 'path_to_converted_json_file '(optional)
 verbose: False                                             #(optional) if set to True a high amount of logging output for debugging is written to the path specified below under 'filename'. Usually /var/log/ (optional)
-send_data: False                       #(obligatory)<-----MUST be set to True if the transmission of data stream to CERN is to be started (obligatory)
+send_data: False                       #(optional) default: False<-----MUST be set to True to start sending records to CERN
 
 #config::path to local dump file :
 path_to_converted_json_file :           # only obligatory if  "local_dump" is set to True. E.g.: "/path/to/wlcg_converted.json"
@@ -68,7 +68,7 @@ config::logging :
                         class: logging.FileHandler
                         level: INFO                                     #<----change to DEBUG if very verbose output is needed for debugging (optional)
                         formatter: simple
-                        filename: /var/log/wlcg_converter.log  # <----configure the path to the .log file (optional)
+                        filename: /var/log/wlcg_converter/wlcg_converter.log  # <----configure the path to the .log file; the directory must be writable by the service user (optional)
                         mode: a
         loggers:
                 wlcgConverter:

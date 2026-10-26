@@ -72,7 +72,6 @@ class WlcgConverter:
                 with open(self.conf["path_to_converted_json_file"], 'a') as wlcg_json_output_file:
                     json.dump(wlcg_dict, wlcg_json_output_file)
                     wlcg_json_output_file.write('\n')
-                    logger.debug("Message_data: %s", message_data)
 
             if self.conf["send_data"]:
                 if self.conf["ip_filter_is_active"]:

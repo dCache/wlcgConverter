@@ -13,12 +13,13 @@ COPY wlcgConverterPackage/wlcg /opt/wlcgConverter/wlcg
 RUN chmod +x /opt/wlcgConverter/wlcgConverter.py \
     && ln -s /opt/wlcgConverter/wlcgConverter.py /usr/local/bin/wlcgConverter
 
-# Create directories for configuration and logs
-RUN mkdir -p /etc/wlcg_converter /var/log
+# Create directories for the configuration, the log and the SciTag cache file
+RUN mkdir -p /etc/wlcg_converter /var/log/wlcg_converter /var/lib/wlcg_converter
 
-# Create a non-root user for security
+# Create a non-root user for security; it owns the log and cache directories only
 RUN useradd -r -s /bin/false wlcgconverter
-RUN chown -R wlcgconverter:wlcgconverter /etc/wlcg_converter /var/log
+RUN chown wlcgconverter:wlcgconverter /var/log/wlcg_converter /var/lib/wlcg_converter \
+    && chmod 700 /var/log/wlcg_converter /var/lib/wlcg_converter
 
 # Switch to non-root user
 USER wlcgconverter

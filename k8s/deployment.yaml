@@ -24,7 +24,12 @@ spec:
         - name: certs
           mountPath: /etc/wlcg_converter/certs
           readOnly: true
+        # writable directory for scitags_cache_file
+        - name: scitags-cache
+          mountPath: /var/lib/wlcg_converter
       volumes:
+      - name: scitags-cache
+        emptyDir: {}
       - name: config
         secret:
           secretName: wlcg-converter-config
