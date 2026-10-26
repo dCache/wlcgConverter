@@ -27,27 +27,23 @@ Before you can start using the "wlcgConverter" some prerequisites have to be met
 
 
 ## Python prerequisites
-The following python packages must be installed on the machine running the wlcgConverter:
+The wlcgConverter needs **Python 3.10 or newer** (tested with 3.10, 3.12 and 3.14) and the python packages listed, with their exact versions, in `requirements.txt`:
 
-- python3                 &ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;#tested with version 3.6.8
-- stomp.py               &ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;&ensp;#tested with version 8.1.0
-- PyYAML==5.4.1
-- python-dateutil    &ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;#tested with version 2.8.2
--  kafka-python    &ensp;&thinsp;&ensp;&thinsp;&ensp;&thinsp;&ensp;#tested with version  2.0.2
+- stomp.py 9.0.0
+- PyYAML 6.0.3
+- python-dateutil 3.0.0
+- kafka-python 3.0.11
 
-In case you **DO NOT** have these packages installed, run the following commands as root on the command line:
+In case you **DO NOT** have them installed, run the following commands as root on the command line.
 
 Depending on your linux distro, e.g.:
 ```
 yum install python3
 yum install python3-pip   
 ```
-and then:
+and then, from the repository root:
 ```
-pip3 install stomp.py
-pip3 install PyYAML==5.4.1
-pip3 install python-dateutil 
-pip3 install kafka-python
+pip3 install -r requirements.txt
 ```
 
 ## How to configure the "wlcgConverter" service

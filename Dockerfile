@@ -1,11 +1,7 @@
-# Use Python 3.8 as base image (compatible with 3.6+ requirement)
-FROM python:3.8-slim
+# Python 3.10 is the minimum (stomp.py 9); 3.12 is a maintained release
+FROM python:3.12-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
+# All dependencies install as prebuilt wheels or pure Python, so no compiler is needed
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

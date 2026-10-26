@@ -1,4 +1,5 @@
-stomp.py==8.1.0
-PyYAML==5.4.1
-python-dateutil==2.8.2
-kafka-python==2.0.2
+# Exact versions, tested on Python 3.10, 3.12 and 3.14. Python 3.10 is the minimum (stomp.py 9).
+stomp.py==9.0.0
+PyYAML==6.0.3
+python-dateutil==3.0.0
+kafka-python==3.0.11
