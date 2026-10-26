@@ -1,7 +1,7 @@
 """
 Builds the v2 WLCG transfer record from a dCache billing record.
 
-See docs/SCHEMA.md for the field table and resolution rules. String fields are
+docs/RECORD.md describes the fields and how each is derived. String fields are
 never None (empty string or 'unknown'); numeric fields are None only when the
 billing record lacks them.
 """

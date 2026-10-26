@@ -40,7 +40,7 @@ kafka_broker_incoming:            #(obligatory)<------your local kafka broker ad
 instance :                                  # (obligatory) <-----name of the instance used for your kafka stream. E.g.: 'cms'  (obligatory)
 topic :                                        # (obligatory)<------name of the kafka topic used by your kafka brokers. E.g.: 'billing-cms' (obligatory)
 
-#config::schema : ---------------------settings for the v2 WLCG transfer record (see docs/SCHEMA.md)----------------------------------------
+#config::schema : ---------------------settings for the v2 WLCG transfer record (see docs/RECORD.md)----------------------------------------
 server_technology: "dcache"                    #(optional) default: dcache
 server_site:                                    #(obligatory)<-----WLCG site name of this storage, as a quoted string. E.g.: "DESY-HH" (obligatory)
 server_version:                                 #(obligatory)<-----dCache release of this instance, as a quoted string. E.g.: "10.2.5" (obligatory)

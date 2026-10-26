@@ -10,3 +10,6 @@ billing_records/
 # local test output
 output_test.json
 *.log
+
+# private notes, plans and test data; never committed
+local/
