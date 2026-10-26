@@ -29,7 +29,7 @@ In the source column, `mi` stands for `moverInfo` and `pi` for `moverInfo.protoc
 | `src_hostname` | string | | same as `src_ip` |
 | `dst_hostname` | string | | same as `dst_ip` |
 | `vo` | string | `subject` | see VO |
-| `activity` | string | | always `unknown` |
+| `activity` | string | `pi.transferTag` | see SciTag |
 | `auth_method` | string | `subject` | `x509`, `token`, `none` or `unknown`; see Authentication method |
 | `file_path` | string | `transferPath`, else `mi.transferPath` | path of the file in the dCache namespace |
 | `file_name` | string | `file_path` | see File name |
@@ -55,7 +55,11 @@ In the source column, `mi` stands for `moverInfo` and `pi` for `moverInfo.protoc
 
 **Status.** `status_code` and `error_message` come from the door's `status`, the final result of the request. When it has no code, the pool's `mi.status` is used.
 
-**VO.** The VO comes from the VOMS FQANs in the billing `subject`: the VO of the primary FQAN (`FQANPrincipal[/cms,primary]` → `cms`), else of the first FQAN, in lowercase. Groups and roles are not included. Without an FQAN, `vo` is `unknown`.
+**VO.** The VO comes from the VOMS FQANs in the billing `subject`: the VO of the primary FQAN (`FQANPrincipal[/cms,primary]` → `cms`), else of the first FQAN, in lowercase. Groups and roles are not included. Without an FQAN, `vo` is the experiment of the SciTag (see SciTag), except the registry's generic `default` experiment. Otherwise `vo` is `unknown`.
+
+**SciTag.** `pi.transferTag` holds the `scitag.flow` value the client sent with the transfer. A valid value is an integer from 64 to 65535 that encodes an experiment id and an activity id as `experiment << 6 | activity`; for example `206` is experiment 3, activity 14. The ids are looked up in the SciTags registry (scitags.org), where `206` is `cms` / `Analysis Input`. `activity` is the activity name. It is `unknown` when the tag is empty, not a valid value, or not in the registry.
+
+The registry is loaded once, when the converter starts: from `scitags_url`, else from `scitags_cache_file`, else from the copy included with the converter (`wlcg/scitags_bundled.json`). After a successful download the converter writes it to `scitags_cache_file`. Only `https` URLs are used, and a download is rejected if it is larger than 1 MB or not in the registry's format.
 
 **Authentication method.** From the principals in the billing `subject`:
 
@@ -79,5 +83,7 @@ These settings in `wlcgConverter_config.yaml` determine the record's values:
 | `storage_instance` | no, default `instance` | `storage_instance` |
 | `local_networks` | no | list of CIDR networks; see Sites |
 | `file_name_strip_prefixes` | no | list of absolute path prefixes; see File name |
+| `scitags_url` | no, default `https://scitags.org/api.json` | where the SciTags registry is downloaded from; must be `https` |
+| `scitags_cache_file` | no | file the downloaded registry is saved to and read from when the download fails; its directory must be writable |
 
 Values that YAML reads as numbers, such as a version `10.10`, must be quoted. The converter checks these settings at startup and exits with code 2 if one is missing or invalid.

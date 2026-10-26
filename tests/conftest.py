@@ -85,3 +85,14 @@ def make_config(**overrides):
 @pytest.fixture
 def conf():
     return make_config()
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Tests never download anything; a test that needs a download fakes it."""
+    import urllib.request
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test tried to open a URL: %r" % (args[:1],))
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)

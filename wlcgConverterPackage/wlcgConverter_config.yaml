@@ -48,6 +48,10 @@ storage_instance:                               #(optional) name of the dCache i
 local_networks:                                 #(optional) client IPs in these CIDRs belong to <server_site> => traffic_scope LAN. E.g.: ["131.169.0.0/16", "2001:638:700::/48"]
 file_name_strip_prefixes: []                    #(optional) prefixes removed from file_path to build file_name; longest match wins. E.g.: ["/pnfs/desy.de/cms/tier2"]
 
+#config::scitags : ----------------------SciTags registry for the activity field (see docs/RECORD.md)-----------------------------------------------
+scitags_url: "https://scitags.org/api.json"     #(optional) https only; downloaded once at startup
+scitags_cache_file:                             #(optional) the download is saved here and used when it fails; the directory must be writable. E.g.: "/var/lib/wlcg_converter/scitags.json"
+
 #config::logging:------------------all denoted options below are optional---------------------------------------------------------------------
 config::logging :
         version: 1

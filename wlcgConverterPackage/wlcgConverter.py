@@ -20,6 +20,7 @@ from kafka import KafkaConsumer
 
 from wlcg.config import Config, ConfigError
 from wlcg.schema import build_record
+from wlcg.scitags import load_registry
 
 logger = logging.getLogger('wlcgConverter')
 
@@ -43,9 +44,10 @@ def is_wanted(record, protocol):
 
 class WlcgConverter:
 
-    def __init__(self, conf={}, activemq_connection=None):
+    def __init__(self, conf={}, activemq_connection=None, registry=None):
         self.conf = conf
         self.activemq_connection = activemq_connection
+        self.registry = registry
 
     def execute(self, message):
         message_data = message.value
@@ -57,7 +59,7 @@ class WlcgConverter:
         if is_wanted(message_data, self.conf["protocol"]):
 
             try:
-                wlcg_dict = build_record(message_data, self.conf)
+                wlcg_dict = build_record(message_data, self.conf, self.registry)
             except Exception:
                 # one malformed record must not stop the converter; AMQ errors below still do.
                 # Log only non-personal context: the record holds the user's DN and email.
@@ -219,6 +221,9 @@ def main():
     if conf["verbose"]:
         logger.setLevel('DEBUG')
 
+    # SciTag names for the activity field; loaded once, never per record #
+    registry = load_registry(conf.scitags_url, conf.scitags_cache_file)
+
     # create a kafka consumer object #
     kafka_consumer = CustomKafkaConsumer(topic_name=conf["topic"],
                                     msg_offset='latest',
@@ -232,7 +237,7 @@ def main():
         logger.info("Producer: Connection to amq broker established successfully.")
 
     # create a converter object #
-    wlgc_converter = WlcgConverter(conf, activemq_connection=connection)
+    wlgc_converter = WlcgConverter(conf, activemq_connection=connection, registry=registry)
     # and start working until Ctrl-c is pressed.#
     try:
         kafka_consumer.getMessage(analyser=wlgc_converter)

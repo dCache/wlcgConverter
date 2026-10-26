@@ -109,7 +109,7 @@ def test_decode_message_never_raises(payload, expected):
 
 
 def test_conversion_error_is_logged_and_skipped(amq, monkeypatch, caplog):
-    def broken(raw, conf):
+    def broken(raw, conf, registry):
         raise ValueError("boom")
 
     monkeypatch.setattr(wlcgConverter, "build_record", broken)

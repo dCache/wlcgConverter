@@ -19,6 +19,7 @@ SWITCH_DEFAULTS = {
 
 KAFKA_KEYS = ("kafka_broker_incoming", "topic", "instance")
 AMQ_KEYS = ("amq_host", "amq_topic", "amq_port_tls", "amq_ca_certs")
+DEFAULT_SCITAGS_URL = "https://scitags.org/api.json"
 
 
 class Config(dict):
@@ -42,6 +43,12 @@ class Config(dict):
         self.storage_instance = self._string("storage_instance", str(self.get("instance", "")))
         self.local_networks = self._networks("local_networks")
         self.strip_prefixes = self._prefixes("file_name_strip_prefixes")
+
+        self.scitags_url = self._string("scitags_url", DEFAULT_SCITAGS_URL)
+        if not self.scitags_url.startswith("https://"):
+            raise ConfigError("'scitags_url' must be an https:// URL, got %r" % self.scitags_url)
+        # no cache file by default: the bundled copy is the fallback
+        self.scitags_cache_file = self._string("scitags_cache_file", "") or None
 
     def _check_v1_keys(self):
         """Defaults for the v1 switches, and the keys the enabled outputs need."""

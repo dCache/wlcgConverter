@@ -33,12 +33,13 @@ TOKEN_PRINCIPALS = {
 UNKNOWN = "unknown"
 
 
-def build_record(raw, conf):
+def build_record(raw, conf, registry=None):
     """
     Convert one billing door record to the v2 WLCG record.
 
     :param raw: billing record dict as consumed from Kafka
     :param conf: wlcg.config.Config
+    :param registry: wlcg.scitags.SciTagRegistry; without it activity is 'unknown'
     """
     mover = raw.get("moverInfo") or {}
     protocol_info = mover.get("protocolInfo") or {}
@@ -47,7 +48,7 @@ def build_record(raw, conf):
     record.update(_timing(raw, mover))
     record.update(_protocol(mover, protocol_info, conf))
     record.update(_endpoints(mover, protocol_info))
-    record.update(_identity(raw))
+    record.update(_identity(raw, protocol_info, registry))
     record.update(_file_and_status(raw, mover, conf))
     record.update(_sites(mover, protocol_info, conf))
     logger.debug(record)
@@ -184,15 +185,21 @@ def auth_method(subject):
     return UNKNOWN
 
 
-def _identity(raw):
+def _identity(raw, protocol_info, registry):
+    experiment, activity = (None, None)
+    if registry is not None:
+        experiment, activity = registry.decode(protocol_info.get("transferTag"))
+    # 'default' is the registry's catch-all experiment, not a VO
+    tag_vo = experiment.lower() if experiment and experiment != "default" else None
+
     subject = raw.get("subject")
     if not isinstance(subject, list):
         # no subject at all says nothing about how the client authenticated
-        return {"vo": UNKNOWN, "activity": UNKNOWN, "auth_method": UNKNOWN}
+        return {"vo": tag_vo or UNKNOWN, "activity": activity or UNKNOWN, "auth_method": UNKNOWN}
     return {
-        "vo": vo_from_subject(subject) or UNKNOWN,
-        # the SciTag is not decoded yet
-        "activity": UNKNOWN,
+        # the FQAN is what dCache authorised; the tag is what the client declared
+        "vo": vo_from_subject(subject) or tag_vo or UNKNOWN,
+        "activity": activity or UNKNOWN,
         "auth_method": auth_method(subject),
     }
 
