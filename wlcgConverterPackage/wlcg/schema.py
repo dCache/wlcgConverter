@@ -48,7 +48,7 @@ def build_record(raw, conf):
     record.update(_protocol(mover, protocol_info, conf))
     record.update(_endpoints(mover, protocol_info))
     record.update(_identity(raw))
-    record.update(_file_and_status(raw, mover))
+    record.update(_file_and_status(raw, mover, conf))
     record.update(_sites(mover, protocol_info, conf))
     logger.debug(record)
     return record
@@ -205,13 +205,25 @@ def _status(raw, mover):
     return {}
 
 
-def _file_and_status(raw, mover):
+def strip_prefix(path, prefixes):
+    """
+    Remove the first matching prefix, keeping the leading '/'. Prefixes match whole
+    path components only, and come sorted longest first, so the longest one wins.
+    """
+    for prefix in prefixes:
+        if path == prefix:
+            return "/"
+        if path.startswith(prefix + "/"):
+            return path[len(prefix):]
+    return path
+
+
+def _file_and_status(raw, mover, conf):
     status = _status(raw, mover)
     file_path = raw.get("transferPath") or mover.get("transferPath") or ""
     return {
         "file_path": file_path,
-        # the PFN, unchanged
-        "file_name": file_path,
+        "file_name": strip_prefix(file_path, conf.strip_prefixes),
         "file_size": raw.get("fileSize"),
         "transferred_volume": mover.get("transferSize"),
         "status_code": status.get("code"),

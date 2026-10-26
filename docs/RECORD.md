@@ -32,7 +32,7 @@ In the source column, `mi` stands for `moverInfo` and `pi` for `moverInfo.protoc
 | `activity` | string | | always `unknown` |
 | `auth_method` | string | `subject` | `x509`, `token`, `none` or `unknown`; see Authentication method |
 | `file_path` | string | `transferPath`, else `mi.transferPath` | path of the file in the dCache namespace |
-| `file_name` | string | | same as `file_path` |
+| `file_name` | string | `file_path` | see File name |
 | `file_size` | integer | `fileSize` | size of the file in bytes |
 | `transferred_volume` | integer | `mi.transferSize` | bytes transferred |
 | `status_code` | integer | `status.code`, else `mi.status.code` | `0` on success, the dCache error code otherwise |
@@ -50,6 +50,8 @@ In the source column, `mi` stands for `moverInfo` and `pi` for `moverInfo.protoc
 **IP addresses.** Addresses are written in the canonical form of RFC 5952, e.g. `2001:638:700:10a0::1:479`. An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is written as the IPv4 address. The port is removed from the pool endpoint. A value that is not an IP address is passed through unchanged, and `ipver` is then `unknown`.
 
 **Sites.** The pool end has the site `server_site`. The client end has the site `server_site` when the client address is in one of the networks in `local_networks`, and the client IP address otherwise. `traffic_scope` is `LAN`, with `remote_access` `false`, when the client address is in `local_networks`, and `UNKNOWN` otherwise.
+
+**File name.** `file_name` is `file_path` with the longest matching prefix from `file_name_strip_prefixes` removed, keeping the leading `/`: with the prefix `/pnfs/desy.de/cms/tier2`, `/pnfs/desy.de/cms/tier2/store/data/x.root` becomes `/store/data/x.root`. Prefixes match whole path components only, so `/a/b` does not match `/a/bc/x.root`. When no prefix matches, or none is configured, `file_name` is `file_path`.
 
 **Status.** `status_code` and `error_message` come from the door's `status`, the final result of the request. When it has no code, the pool's `mi.status` is used.
 
@@ -76,5 +78,6 @@ These settings in `wlcgConverter_config.yaml` determine the record's values:
 | `server_technology` | no, default `dcache` | `server_technology` |
 | `storage_instance` | no, default `instance` | `storage_instance` |
 | `local_networks` | no | list of CIDR networks; see Sites |
+| `file_name_strip_prefixes` | no | list of absolute path prefixes; see File name |
 
 Values that YAML reads as numbers, such as a version `10.10`, must be quoted. The converter checks these settings at startup and exits with code 2 if one is missing or invalid.
