@@ -38,7 +38,7 @@ def test_decode_valid_tags(tag, expected):
 
 
 @pytest.mark.parametrize("tag", [
-    "196664",   # old CMSSW layout (3 << 16 | 14 << 2)
+    "196664",   # IPv6 flow-label value sent by mistake (CMSSW bug, cms-sw/cmssw #51227)
     "63",       # below the valid range
     "65536",    # above it
     "215",      # cms, but activity 23 is not in this registry
