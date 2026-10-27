@@ -8,6 +8,8 @@ wlcgConverter reads dCache billing messages from Kafka. A message produces one r
 
 The record is a JSON object. It is sent to the AMQ topic `amq_topic` when `send_data` is `True`, and appended as one line to `path_to_converted_json_file` when `local_dump` is `True`. When `ip_filter_is_active` is `True`, records whose client address is in the configured IPv4 or IPv6 subnet are not sent to AMQ; they are still written to the local file.
 
+Messages are read from Kafka in batches of up to 500. A batch counts as processed, and its Kafka offsets are committed, only after its records are written to the local file and the AMQ broker has confirmed them with a STOMP receipt. If the broker does not confirm a batch within 60 seconds, the connection is lost, or an output fails, the converter stops with exit code 1 without committing; at the next start it reads the same batch again. A record can therefore be sent more than once, but it is not lost.
+
 ## Fields
 
 In the source column, `mi` stands for `moverInfo` and `pi` for `moverInfo.protocolInfo` of the billing message. String fields are never `null`. A numeric field is `null` when the billing message does not contain the value.

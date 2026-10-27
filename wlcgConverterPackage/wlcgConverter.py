@@ -12,6 +12,8 @@ import json
 import logging
 import logging.config
 import sys
+import threading
+import uuid
 from ipaddress import ip_address, ip_network
 
 import stomp
@@ -23,6 +25,14 @@ from wlcg.schema import build_record
 from wlcg.scitags import load_registry
 
 logger = logging.getLogger('wlcgConverter')
+
+# Kafka messages read and confirmed together; one broker round trip per batch
+KAFKA_BATCH_SIZE = 500
+RECEIPT_TIMEOUT_SECONDS = 60
+
+
+class DeliveryError(Exception):
+    """The AMQ broker did not confirm a batch of records."""
 
 
 def decode_message(value):
@@ -92,6 +102,10 @@ class WlcgConverter:
                                               content_type='application/json')
                     logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
 
+    def deliver(self):
+        """Send the records of the current batch and wait until the broker confirms them."""
+        if self.conf["send_data"]:
+            self.activemq_connection.confirm()
 
     def __ip_matches_subnet(self, client_ip_addr, network_addr, network_cidr):
         '''
@@ -114,6 +128,65 @@ class WlcgConverter:
             logger.warning("Invalid Argument: %s", ve)
 
 # ************************************************************************************************************
+
+
+class AmqSender(stomp.ConnectionListener):
+    """
+    Collects the records of one Kafka batch and sends them in confirm(). The last record
+    asks the broker for a receipt; the broker handles the frames of a connection in order,
+    so that receipt confirms the whole batch. A send into a dropped connection can look
+    successful, so only the receipt counts as delivered.
+    """
+
+    def __init__(self, connection, timeout=RECEIPT_TIMEOUT_SECONDS):
+        self.connection = connection
+        self.timeout = timeout
+        self.pending = []
+        self._receipt = None
+        self._problem = None
+        self._answered = threading.Event()
+        connection.set_listener("wlcgConverter-receipts", self)
+
+    def send(self, destination, body, content_type):
+        self.pending.append((destination, body, content_type))
+
+    def confirm(self):
+        """Send the pending records; raise DeliveryError unless the broker confirms them."""
+        if not self.pending:
+            return
+        frames, self.pending = self.pending, []
+        self._receipt = "wlcgConverter-%s" % uuid.uuid4().hex
+        self._problem = None
+        self._answered.clear()
+        try:
+            if not self.connection.is_connected():
+                raise DeliveryError("not connected to the broker")
+            for i, (destination, body, content_type) in enumerate(frames):
+                headers = {"receipt": self._receipt} if i == len(frames) - 1 else {}
+                self.connection.send(destination=destination, body=body, content_type=content_type, headers=headers)
+        except DeliveryError:
+            raise
+        except Exception as e:
+            raise DeliveryError("sending failed: %s" % e)
+        if not self._answered.wait(self.timeout):
+            raise DeliveryError("the broker did not confirm %d records within %d s" % (len(frames), self.timeout))
+        if self._problem:
+            raise DeliveryError(self._problem)
+        logger.debug("The broker confirmed %d records.", len(frames))
+
+    def on_receipt(self, frame):
+        if frame.headers.get("receipt-id") == self._receipt:
+            self._answered.set()
+
+    def on_error(self, frame):
+        if not self._answered.is_set():
+            self._problem = "the broker answered with an error: %s" % frame.headers.get("message", "")
+            self._answered.set()
+
+    def on_disconnected(self):
+        if not self._answered.is_set():
+            self._problem = "the connection to the broker was lost"
+            self._answered.set()
 
 
 def __connect_2_activemq(conf) -> object:
@@ -170,21 +243,33 @@ class CustomKafkaConsumer:
 
         try:
             logger.info("Trying to connect to Kafka...")
+            # offsets are committed by getMessage, after a batch is delivered
             self.consumer = KafkaConsumer(self.topic_name,
                                           auto_offset_reset=self.msg_offset,
                                           group_id=self.group_id,
                                           bootstrap_servers=self.servers,
+                                          enable_auto_commit=False,
                                           value_deserializer=decode_message)
             logger.info("Connection to Kafka established.")
         except Exception as e:
             logger.error("Error initializing KafkaConsumer: {}".format(e))
 
     def getMessage(self, analyser):
-        for message in self.consumer:
-            try:
-                analyser.execute(message)
-            except IOError:
-                pass
+        """
+        Process Kafka messages batch by batch. A batch's offsets are committed only after
+        its records are written and confirmed by the broker. Any error ends the loop before
+        the commit, so after a restart the batch is read and sent again: a batch can arrive
+        twice, but no record is lost.
+        """
+        while True:
+            batch = self.consumer.poll(timeout_ms=1000, max_records=KAFKA_BATCH_SIZE)
+            if not batch:
+                continue
+            for messages in batch.values():
+                for message in messages:
+                    analyser.execute(message)
+            analyser.deliver()
+            self.consumer.commit()
 
 
 # ************************************************************************************************************
@@ -230,23 +315,37 @@ def main():
                                     group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
 
     connection = None
+    sender = None
     # connect to active_mq if send_date is True in config#
     if conf["send_data"]:
         connection = __connect_2_activemq(conf)
+        sender = AmqSender(connection)
         logger.info("Producer: Connection to amq broker established successfully.")
 
     # create a converter object #
-    wlgc_converter = WlcgConverter(conf, activemq_connection=connection, registry=registry)
+    wlgc_converter = WlcgConverter(conf, activemq_connection=sender, registry=registry)
     # and start working until Ctrl-c is pressed.#
+    exit_code = 0
     try:
         kafka_consumer.getMessage(analyser=wlgc_converter)
     except KeyboardInterrupt:
         logger.info("\nWlcgConverter was terminated by user (CTRL-C).")
+    except DeliveryError as e:
+        logger.error("Stopped: %s. The batch was not committed in Kafka; its records are read and "
+                     "sent again at the next start.", e)
+        exit_code = 1
+    except Exception:
+        logger.exception("Stopped by an unexpected error. The current batch was not committed in Kafka; "
+                         "its records are read again at the next start.")
+        exit_code = 1
     finally:
-        if connection is not None:
+        # disconnecting a lost connection would wait for a receipt that never comes
+        if connection is not None and connection.is_connected():
             logger.info("Disconnecting...")
             connection.disconnect()
             logger.info("AMQ connection was disconnected successfully.")
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -19,11 +19,13 @@
 - Records are only sent over TLS, to `amq_port_tls`; `amq_port` is no longer used. This also applies to username/password logins, which v1 sent unencrypted.
 - The broker's certificate and host name are verified against the CA certificates in the new obligatory setting `amq_ca_certs`. v1 did not verify the broker.
 - The IP filter now works: a client in the configured IPv4 or IPv6 subnet is not sent. In v1 the condition was always true, so every record was sent.
+- Kafka offsets are committed only after the broker confirms a batch of records with a STOMP receipt. If a batch is not confirmed, the converter stops with exit code 1 and sends the batch again at the next start, so a record can arrive twice but is not lost. v1 let Kafka commit every 5 seconds whatever had been read: records sent into a dropped connection were lost without a log line.
 
 ### Robustness and privacy
 
 - Kafka messages that are not JSON, or not a billing record, are skipped. In v1 a message that was not JSON stopped the converter.
 - A record that cannot be converted is logged, by pnfsid, date and cell, and skipped.
+- A failing output, e.g. an unwritable local dump file, stops the converter with exit code 1 and a log message. v1 dropped such records silently, and did not send them to the broker either.
 - The debug log no longer contains the raw billing record, which holds the user's DN and email.
 
 ### Installation

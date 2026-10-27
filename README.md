@@ -91,6 +91,8 @@ systemctl status wlcgConverter.service
 ```
 The latter command simply outputs the status of the service. If the shown status is "active (running)", everything is working 
 as expected. 
+
+If the broker does not confirm a batch of records, the converter logs the reason and stops with exit code 1 without marking the batch as processed in Kafka. systemd starts it again after 30 seconds, and it sends that batch again. A record can therefore arrive twice, but it is not lost. When running the Docker image without systemd or Kubernetes, start the container with a restart policy, e.g. `docker run --restart unless-stopped …`, so it is started again after such a stop.
 ## Troubleshooting
 Troubleshooting the service is best done with the information provided by the following command:
 ```
