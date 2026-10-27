@@ -1,0 +1,64 @@
+################### wlcgConverter config for a trial run (see trial/README.md in the repository) ###################
+# Nothing is sent to CERN: send_data is False. Every converted record is written to trial-output.json.
+# Relative paths are relative to the directory the converter is started from.
+# Fill in the values marked FILL IN; everything else can stay.
+
+#config::options :
+protocol: "Xrootd"
+send_data: False
+local_dump: True
+verbose: False
+path_to_converted_json_file: "./trial-output.json"
+
+#config::kafka :
+kafka_broker_incoming: ["FILL-IN-broker1:9092", "FILL-IN-broker2:9092"]   # FILL IN: the dCache billing Kafka brokers
+topic: "FILL-IN"                                  # FILL IN: the dCache billing topic, e.g. "billing"
+
+#config::log_archiver :
+# The Kafka consumer group is "wlcgConverter-<instance>-consumer"; "trial" keeps it apart from a later production run.
+instance: "trial"
+
+#config::schema :
+server_technology: "dcache"
+server_site: "DESY-HH"                            # FILL IN if different
+server_version: "FILL-IN"                         # FILL IN: the dCache release, quoted, e.g. "10.2.5"
+storage_instance: "FILL-IN"                       # FILL IN: the dCache instance name (otherwise it would be "trial")
+local_networks:                                   # FILL IN: the site's own networks
+  - "131.169.0.0/16"
+  - "2001:638:700::/48"
+file_name_strip_prefixes: []                      # optional, e.g. ["/pnfs/desy.de/cms/tier2"]
+
+#config::scitags :
+scitags_url: "https://scitags.org/api.json"       # one download at startup
+scitags_cache_file: "./scitags.json"
+
+#config::logging :
+config::logging:
+        version: 1
+        formatters:
+                simple:
+                        format: "%(asctime)s - [%(name)s] - [%(levelname)s] - %(message)s"
+        handlers:
+                console:
+                        class: logging.StreamHandler
+                        level: INFO
+                        formatter: simple
+                        stream: ext://sys.stdout
+                file:
+                        class: logging.FileHandler
+                        level: INFO
+                        formatter: simple
+                        filename: ./trial.log
+                        mode: a
+        loggers:
+                wlcgConverter:
+                        level: INFO
+                        handlers: [console, file]
+                        propagate: no
+                kafka:
+                        level: WARNING
+                        handlers: [console, file]
+                        propagate: no
+        root:
+                level: WARNING
+                handlers: [console, file]
