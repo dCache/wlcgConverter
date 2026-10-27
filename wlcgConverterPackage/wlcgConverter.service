@@ -24,9 +24,12 @@ Group=wlcgconverter
 # files the converter creates (log, local dump, SciTag cache) are readable by that user only
 UMask=0077
 NoNewPrivileges=yes
-# /var/log/wlcg_converter and /var/lib/wlcg_converter, created and owned by the user
+# /var/log/wlcg_converter and /var/lib/wlcg_converter, created and owned by the user;
+# 0700 so other users cannot even list the file names
 LogsDirectory=wlcg_converter
+LogsDirectoryMode=0700
 StateDirectory=wlcg_converter
+StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

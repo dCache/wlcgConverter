@@ -239,20 +239,17 @@ class CustomKafkaConsumer:
         self.topic_name = topic_name
         self.msg_format = msg_format
         self.msg_offset = msg_offset
-        self.consumer = None
-
-        try:
-            logger.info("Trying to connect to Kafka...")
-            # offsets are committed by getMessage, after a batch is delivered
-            self.consumer = KafkaConsumer(self.topic_name,
-                                          auto_offset_reset=self.msg_offset,
-                                          group_id=self.group_id,
-                                          bootstrap_servers=self.servers,
-                                          enable_auto_commit=False,
-                                          value_deserializer=decode_message)
-            logger.info("Connection to Kafka established.")
-        except Exception as e:
-            logger.error("Error initializing KafkaConsumer: {}".format(e))
+        logger.info("Trying to connect to Kafka...")
+        # offsets are committed by getMessage, after a batch is delivered. A failure here
+        # is raised to main(), which stops with a clear message instead of running without
+        # a consumer.
+        self.consumer = KafkaConsumer(self.topic_name,
+                                      auto_offset_reset=self.msg_offset,
+                                      group_id=self.group_id,
+                                      bootstrap_servers=self.servers,
+                                      enable_auto_commit=False,
+                                      value_deserializer=decode_message)
+        logger.info("Connection to Kafka established.")
 
     def getMessage(self, analyser):
         """
@@ -309,10 +306,15 @@ def main():
     registry = load_registry(conf.scitags_url, conf.scitags_cache_file)
 
     # create a kafka consumer object #
-    kafka_consumer = CustomKafkaConsumer(topic_name=conf["topic"],
-                                    msg_offset='latest',
-                                    servers=conf["kafka_broker_incoming"],
-                                    group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
+    try:
+        kafka_consumer = CustomKafkaConsumer(topic_name=conf["topic"],
+                                        msg_offset='latest',
+                                        servers=conf["kafka_broker_incoming"],
+                                        group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
+    except Exception as e:
+        # exit 1, not 2: Kafka may be back at the next start
+        logger.error("Could not connect to Kafka at %s: %s", conf["kafka_broker_incoming"], e)
+        sys.exit(1)
 
     connection = None
     sender = None

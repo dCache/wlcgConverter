@@ -37,7 +37,7 @@ The wlcgConverter needs **Python 3.10 or newer** (tested with 3.10, 3.12 and 3.1
 - python-dateutil 3.0.0
 - kafka-python 3.0.11
 
-The packages are installed into their own virtual environment, `/opt/wlcgConverter/venv`, so they do not depend on or change the system's Python packages. Create it with a Python 3.10 or newer. On EL9 (RHEL, AlmaLinux, Rocky) the default `python3` is 3.9, which is too old; install the `python3.12` package instead. Run as root, from the repository root:
+The packages are installed into their own virtual environment, `/opt/wlcgConverter/venv`, so they do not depend on or change the system's Python packages. Create it with a Python 3.10 or newer. On EL9 (RHEL, AlmaLinux, Rocky) the default `python3` is 3.9, which is too old; install the `python3.12` package instead (`yum` works the same as `dnf` there). Run as root, from the repository root:
 ```
 dnf install python3.12
 mkdir -p /opt/wlcgConverter
