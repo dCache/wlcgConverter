@@ -8,11 +8,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/wlcgConverter /etc/wlcg_converter/wlcgConverter_config.yaml
+# the Python of the virtual environment that holds the pinned packages (see README);
+# the script's own '#!/usr/bin/env python3' would pick the system Python
+ExecStart=/opt/wlcgConverter/venv/bin/python /opt/wlcgConverter/wlcgConverter.py /etc/wlcg_converter/wlcgConverter_config.yaml
 Restart=always
 # wait between restarts, so a failing start does not reconnect to Kafka, the broker
 # and scitags.org many times a second
 RestartSec=30
+# exit code 2 is an invalid configuration, which a restart cannot fix
+RestartPreventExitStatus=2
 
 # run as a dedicated user, not root; the user must be able to read the config and certificates
 User=wlcgconverter

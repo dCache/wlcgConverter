@@ -23,7 +23,7 @@ To send records to CERN, these must be provided beforehand:
 
 Before you can start using the "wlcgConverter" some prerequisites have to be met.
 
-1. [Make sure you have python3 and the necessary python libraries installed.](#python-prerequisites)
+1. [Install Python 3.10 or newer and the necessary python libraries in a virtual environment.](#python-prerequisites)
 2. [Fill in all obligatory information into the "wlcgConverter_config.yaml" configuration file.](#how-to-configure-the-wlcgconverter-service)
 3. [Place files from "wlcgConverterPackage" directory into specified locations.](#where-to-locate-the-provided-files)
 4. [Start the service.](#how-to-start-the-wlcgconverter-service)
@@ -37,17 +37,14 @@ The wlcgConverter needs **Python 3.10 or newer** (tested with 3.10, 3.12 and 3.1
 - python-dateutil 3.0.0
 - kafka-python 3.0.11
 
-In case you **DO NOT** have them installed, run the following commands as root on the command line.
-
-Depending on your linux distro, e.g.:
+The packages are installed into their own virtual environment, `/opt/wlcgConverter/venv`, so they do not depend on or change the system's Python packages. Create it with a Python 3.10 or newer. On EL9 (RHEL, AlmaLinux, Rocky) the default `python3` is 3.9, which is too old; install the `python3.12` package instead. Run as root, from the repository root:
 ```
-yum install python3
-yum install python3-pip   
+dnf install python3.12
+mkdir -p /opt/wlcgConverter
+python3.12 -m venv /opt/wlcgConverter/venv
+/opt/wlcgConverter/venv/bin/pip install -r requirements.txt
 ```
-and then, from the repository root:
-```
-pip3 install -r requirements.txt
-```
+On other distributions, use any Python 3.10 or newer in place of `python3.12`.
 
 ## How to configure the "wlcgConverter" service
 - Please open the "wlcgConverter_config.yaml" file and provide the fields denoted with ''obligatory".  
@@ -65,10 +62,7 @@ In the "wlcgConverterPackage" directory you will find the script `wlcgConverter.
 The script and the `wlcg` directory must stay together; never copy the script on its own.  
 Run these commands as root from within the directory:
 ```
-mkdir -p /opt/wlcgConverter
 cp -r wlcgConverter.py wlcg /opt/wlcgConverter/
-chmod 755 /opt/wlcgConverter/wlcgConverter.py
-ln -sf /opt/wlcgConverter/wlcgConverter.py /usr/bin/wlcgConverter
 
 cp wlcgConverter.service /etc/systemd/system/
 
@@ -82,6 +76,12 @@ chown root:wlcgconverter /etc/wlcg_converter/wlcgConverter_config.yaml
 chmod 640 /etc/wlcg_converter/wlcgConverter_config.yaml
 ```
 Give the certificate, key and CA files the same group and mode. systemd creates `/var/log/wlcg_converter/` for the log file and `/var/lib/wlcg_converter/` for the optional `scitags_cache_file`, owned by that user; files the service writes there are readable by that user only. With `local_dump: True`, put `path_to_converted_json_file` in a directory the user can write, e.g. `/var/lib/wlcg_converter/`.
+
+The systemd unit starts the converter with the Python of the virtual environment. To run it by hand, e.g. to check a configuration, use the same command:
+```
+/opt/wlcgConverter/venv/bin/python /opt/wlcgConverter/wlcgConverter.py /etc/wlcg_converter/wlcgConverter_config.yaml
+```
+A missing or invalid setting stops it with exit code 2; systemd does not restart it in that case, so fix the configuration and start the service again.
 ## How to start the wlcgConverter service
 Run the following commands as root:
 ```

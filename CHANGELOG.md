@@ -32,5 +32,6 @@
 
 - Python 3.10 or newer is required. `requirements.txt` pins stomp.py 9.0.0, PyYAML 6.0.3, python-dateutil 3.0.0 and kafka-python 3.0.11.
 - The script imports the `wlcg` package next to it: install `wlcgConverter.py` and `wlcg/` together, as described in the README. The extensionless `wlcgConverter` is a symlink to `wlcgConverter.py`.
-- The systemd unit runs the converter as the user `wlcgconverter` with `UMask=0077`, waits 30 seconds between restarts, and has systemd create `/var/log/wlcg_converter` and `/var/lib/wlcg_converter`.
+- The packages are installed into a virtual environment, `/opt/wlcgConverter/venv`; on EL9, whose `python3` is 3.9, it is created with `python3.12`. The systemd unit starts the converter with that environment's Python, and `/usr/bin/wlcgConverter` is no longer installed.
+- The systemd unit runs the converter as the user `wlcgconverter` with `UMask=0077`, waits 30 seconds between restarts, does not restart after an invalid configuration (exit code 2), and has systemd create `/var/log/wlcg_converter` and `/var/lib/wlcg_converter`.
 - The Docker image is based on `python:3.12-slim`, no longer installs `gcc`, and has a writable `/var/lib/wlcg_converter`; the k8s deployment mounts a volume there.
