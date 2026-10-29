@@ -77,6 +77,7 @@ def _timing(raw, mover):
 
 
 def _protocol(mover, protocol_info, conf):
+    """operation, protocol, protocol_version and the server_* fields from the config."""
     is_write = mover.get("isWrite")
     protocol = str(protocol_info.get("protocol") or "").lower()
     major, minor = protocol_info.get("versionMajor"), protocol_info.get("versionMinor")
@@ -186,6 +187,7 @@ def auth_method(subject):
 
 
 def _identity(raw, protocol_info, registry):
+    """vo, activity and auth_method, from the subject and the SciTag."""
     experiment, activity = (None, None)
     if registry is not None:
         experiment, activity = registry.decode(protocol_info.get("transferTag"))
@@ -226,6 +228,7 @@ def strip_prefix(path, prefixes):
 
 
 def _file_and_status(raw, mover, conf):
+    """The file, size and status fields, and storage_internal_traffic."""
     status = _status(raw, mover)
     file_path = raw.get("transferPath") or mover.get("transferPath") or ""
     return {

@@ -49,15 +49,18 @@ def parse_registry(data):
 
 
 def _is_id(value):
+    """A non-negative integer, as registry ids are."""
     # bool is a subclass of int in Python, but true/false is not an id
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _is_name(value):
+    """A non-empty string."""
     return isinstance(value, str) and value.strip() != ""
 
 
 class SciTagRegistry:
+    """The parsed registry: {expId: (expName, {activityId: activityName})}."""
 
     def __init__(self, table):
         self.table = table
@@ -110,6 +113,7 @@ def load_registry(url, cache_file=None, bundled_file=BUNDLED_FILE):
 
 
 def _fetch(url):
+    """Download and parse the registry JSON; https only, at most MAX_REGISTRY_BYTES."""
     if not url.startswith("https://"):
         raise ValueError("only https URLs are used")
     with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as response:

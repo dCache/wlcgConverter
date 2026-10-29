@@ -32,7 +32,8 @@ def run(client, tmp_path, **overrides):
                     local_dump=True, path_to_converted_json_file=str(tmp_path / "dump.json"))
     settings.update(overrides)
     amq = FakeAmq()
-    wlcgConverter.WlcgConverter(make_config(**settings), amq).execute(Message(billing_record(protocol={"host": client})))
+    converter = wlcgConverter.WlcgConverter(make_config(**settings), amq)
+    converter.process(Message(billing_record(protocol={"host": client})))
     dumped = (tmp_path / "dump.json").read_text().splitlines()
     return len(amq.sent), len(dumped)
 

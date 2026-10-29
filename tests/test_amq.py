@@ -6,7 +6,7 @@ import wlcgConverter
 from conftest import make_config
 from wlcg.config import ConfigError
 
-connect_2_activemq = wlcgConverter.__dict__["__connect_2_activemq"]
+connect_to_broker = wlcgConverter.connect_to_broker
 
 
 class FakeConnection:
@@ -46,7 +46,7 @@ def amq_conf(files, **auth):
 
 def test_certificate_auth_verifies_the_broker(fake_stomp, files):
     conf = amq_conf(files, path_to_cert=files["cert.pem"], path_to_key=files["key.pem"])
-    conn = connect_2_activemq(conf)
+    conn = connect_to_broker(conf)
     assert conn.hosts == [("broker.example.org", 61123)]
     (name, ssl_args), (second, _) = conn.calls
     assert (name, second) == ("set_ssl", "connect")
@@ -57,7 +57,7 @@ def test_certificate_auth_verifies_the_broker(fake_stomp, files):
 
 
 def test_password_is_only_sent_over_verified_tls(fake_stomp, files):
-    conn = connect_2_activemq(amq_conf(files, username="u", password="p"))
+    conn = connect_to_broker(amq_conf(files, username="u", password="p"))
     assert conn.hosts == [("broker.example.org", 61123)]
     assert [name for name, _ in conn.calls] == ["set_ssl", "connect"]
     assert conn.calls[0][1]["ca_certs"] == files["ca.pem"]

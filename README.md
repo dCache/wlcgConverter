@@ -1,7 +1,7 @@
 # WlcgConverter setup guide
 #### Version: 2.0 (2026-10-26) 
 **Important Note:** dCache v9.2 is a minimum requirement for the successful operation of the wlcgConverter. <br>
-Additionally a running Apache Kafka installation is required. More information on configuring dCache for the use with Kafka can be found [here](https://www.dcache.org/manuals/Book-9.2/kafkaproducer.shtml).
+Additionally a running Apache Kafka installation is required. More information on configuring dCache for the use with Kafka can be found [here](https://www.dcache.org/documentation/Book-9.2/kafkaproducer.shtml).
 <br>
 
 The "wlcgConverter" reads dCache billing records from Kafka and converts each xroot transfer into one record of the WLCG transfer-monitoring format. The fields of that record and how each is derived are described in [docs/RECORD.md](docs/RECORD.md).  
@@ -13,8 +13,8 @@ The tool also offers further functionalities, such as:
 
 **Version 2.0 changes the record format.** The v1 fields `bytes_in`, `bytes_out`, `status`, `error_category` and `ipv6` are no longer sent; see [CHANGELOG.md](CHANGELOG.md).
 
-To send records to CERN, these must be provided beforehand:
-- a DN has to be whitelisted at Cern (Mail your request together with a DN to: [wlcgmon-tf@cern.ch](mailto:wlcgmon-tf@cern.ch))
+To send records to MONIT, these must be provided beforehand:
+- a DN has to be whitelisted at CERN (Mail your request together with a DN to: [wlcgmon-tf@cern.ch](mailto:wlcgmon-tf@cern.ch))
 - a certificate file
 - a corresponding key file
 - a file with the CA certificates that signed the broker's certificate, in PEM format (setting `amq_ca_certs`)

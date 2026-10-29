@@ -1,4 +1,4 @@
-"""WlcgConverter.execute: the request/protocol gate, the outputs and the error handling."""
+"""WlcgConverter.process: the request/protocol gate, the outputs and the error handling."""
 
 import json
 from collections import namedtuple
@@ -31,11 +31,11 @@ def converter(amq, **overrides):
                 "amq_ca_certs": __file__, "username": "u", "password": "p"}
     settings.update(overrides)
     conf = make_config(**settings)
-    return wlcgConverter.WlcgConverter(conf, activemq_connection=amq)
+    return wlcgConverter.WlcgConverter(conf, sender=amq)
 
 
 def test_request_record_is_sent(amq):
-    converter(amq).execute(Message(billing_record()))
+    converter(amq).process(Message(billing_record()))
     assert len(amq.sent) == 1
     destination, record = amq.sent[0]
     assert destination == "/topic/test"
@@ -44,7 +44,7 @@ def test_request_record_is_sent(amq):
 
 def test_failed_transfer_is_sent(amq):
     status = {"code": 10007, "msg": "Pool not available"}
-    converter(amq).execute(Message(billing_record(top={"status": status}, mover={"status": status})))
+    converter(amq).process(Message(billing_record(top={"status": status}, mover={"status": status})))
     assert [record["status_code"] for _, record in amq.sent] == [10007]
 
 
@@ -53,21 +53,21 @@ def test_failed_transfer_is_sent(amq):
     billing_record(protocol={"protocol": "Http"}),
 ])
 def test_gate_skips_other_records(amq, raw):
-    converter(amq).execute(Message(raw))
+    converter(amq).process(Message(raw))
     assert amq.sent == []
 
 
 def test_nothing_sent_without_send_data(amq):
     conf = make_config(send_data=False)
-    wlcgConverter.WlcgConverter(conf, activemq_connection=amq).execute(Message(billing_record()))
+    wlcgConverter.WlcgConverter(conf, sender=amq).process(Message(billing_record()))
     assert amq.sent == []
 
 
 def test_local_dump_appends_json_lines(amq, tmp_path):
     dump = tmp_path / "out.json"
     conv = converter(amq, send_data=False, local_dump=True, path_to_converted_json_file=str(dump))
-    conv.execute(Message(billing_record()))
-    conv.execute(Message(billing_record(mover={"isWrite": "write"})))
+    conv.process(Message(billing_record()))
+    conv.process(Message(billing_record(mover={"isWrite": "write"})))
     lines = [json.loads(line) for line in dump.read_text().splitlines()]
     assert [line["operation"] for line in lines] == ["read", "write"]
 
@@ -92,7 +92,7 @@ def replaced(level, value):
     replaced("protocolInfo", "Xrootd"),
 ])
 def test_malformed_messages_are_skipped(amq, value):
-    converter(amq).execute(Message(value))
+    converter(amq).process(Message(value))
     assert amq.sent == []
 
 
@@ -113,7 +113,7 @@ def test_conversion_error_is_logged_and_skipped(amq, monkeypatch, caplog):
         raise ValueError("boom")
 
     monkeypatch.setattr(wlcgConverter, "build_record", broken)
-    converter(amq).execute(Message(billing_record(top={"pnfsid": "0000C22F09D0"})))
+    converter(amq).process(Message(billing_record(top={"pnfsid": "0000C22F09D0"})))
     assert amq.sent == []
     assert "could not be converted" in caplog.text
     assert "0000C22F09D0" in caplog.text
@@ -127,4 +127,4 @@ def test_amq_errors_still_propagate(amq):
             raise ConnectionError("broker gone")
 
     with pytest.raises(ConnectionError):
-        converter(DeadAmq()).execute(Message(billing_record()))
+        converter(DeadAmq()).process(Message(billing_record()))

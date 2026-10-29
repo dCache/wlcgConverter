@@ -1,11 +1,12 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
+"""
+wlcgConverter reads dCache billing records from Kafka, converts each xroot transfer into
+one WLCG transfer-monitoring record (docs/RECORD.md) and sends the records to the AMQ
+broker over verified TLS.
 
-#########################################
-# This script converts json key:value mappings in billing records to a wlcg specific mapping scheme
-# author: sandro.grizzo@desy.de
-# date: 2024-01-10
-# version: 1.0
-#########################################
+Version 2.0. Author: anastasiia.chub@desy.de
+Original author (version 1): sandro.grizzo@desy.de
+"""
 
 import argparse
 import json
@@ -53,81 +54,73 @@ def is_wanted(record, protocol):
 
 
 class WlcgConverter:
+    """
+    Turns Kafka messages into WLCG records and hands them to the outputs.
 
-    def __init__(self, conf={}, activemq_connection=None, registry=None):
+    process() converts one message, appends the record to the local file and queues it
+    with the sender; deliver() makes the sender send the queued records of the batch and
+    wait for the broker's confirmation. sender is an AmqSender, or None without send_data.
+    """
+
+    def __init__(self, conf, sender=None, registry=None):
         self.conf = conf
-        self.activemq_connection = activemq_connection
+        self.sender = sender
         self.registry = registry
 
-    def execute(self, message):
-        message_data = message.value
-        if not isinstance(message_data, dict):
+    def process(self, message):
+        """Convert one Kafka message and pass the record to the outputs; other messages are skipped."""
+        billing = message.value
+        if not isinstance(billing, dict):
             # not JSON at all (decode_message gave None), or JSON that is not an object
             logger.warning("Skipped a Kafka message that is not a JSON object.")
             return
-        # failed transfers are sent too, with their native status code and message
-        if is_wanted(message_data, self.conf["protocol"]):
+        # failed transfers are converted too, with their native status code and message
+        if not is_wanted(billing, self.conf["protocol"]):
+            return
 
-            try:
-                wlcg_dict = build_record(message_data, self.conf, self.registry)
-            except Exception:
-                # one malformed record must not stop the converter; AMQ errors below still do.
-                # Log only non-personal context: the record holds the user's DN and email.
-                logger.exception("Skipped a billing record that could not be converted "
-                                 "(pnfsid=%s, date=%s, cell=%s)", message_data.get("pnfsid"),
-                                 message_data.get("date"), message_data.get("cellName"))
-                return
+        try:
+            record = build_record(billing, self.conf, self.registry)
+        except Exception:
+            # one malformed record must not stop the converter; output errors below still do.
+            # Log only non-personal context: the billing record holds the user's DN and email.
+            logger.exception("Skipped a billing record that could not be converted "
+                             "(pnfsid=%s, date=%s, cell=%s)", billing.get("pnfsid"),
+                             billing.get("date"), billing.get("cellName"))
+            return
 
-            if self.conf["local_dump"]:
-                with open(self.conf["path_to_converted_json_file"], 'a') as wlcg_json_output_file:
-                    json.dump(wlcg_dict, wlcg_json_output_file)
-                    wlcg_json_output_file.write('\n')
+        if self.conf["local_dump"]:
+            with open(self.conf["path_to_converted_json_file"], 'a') as dump_file:
+                json.dump(record, dump_file)
+                dump_file.write('\n')
 
-            if self.conf["send_data"]:
-                if self.conf["ip_filter_is_active"]:
-                    client_ip = message_data.get("moverInfo", {}).get("protocolInfo", {}).get("host")
-                    if not self.__ip_matches_subnet(client_ip,
-                                                self.conf["ipv4_network_address"],
-                                                self.conf["ipv4_cidr"]) \
-                                                and not self.__ip_matches_subnet(client_ip,
-                                                self.conf["ipv6_network_address"],
-                                                self.conf["ipv6_cidr"]):
-                        self.activemq_connection.send(destination=self.conf["amq_topic"],
-                                                  body=json.dumps(wlcg_dict),
-                                                  content_type='application/json')
-                        logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
-                else:
-                    self.activemq_connection.send(destination=self.conf["amq_topic"],
-                                              body=json.dumps(wlcg_dict),
-                                              content_type='application/json')
-                    logger.debug("Message sent via AMQ: %s", json.dumps(wlcg_dict))
+        if self.conf["send_data"] and self._passes_ip_filter(billing):
+            body = json.dumps(record)
+            self.sender.send(destination=self.conf["amq_topic"], body=body, content_type='application/json')
+            logger.debug("Queued for the AMQ broker: %s", body)
 
     def deliver(self):
         """Send the records of the current batch and wait until the broker confirms them."""
         if self.conf["send_data"]:
-            self.activemq_connection.confirm()
+            self.sender.confirm()
 
-    def __ip_matches_subnet(self, client_ip_addr, network_addr, network_cidr):
-        '''
-        :param client_ip_addr: The IPv4 or IPv6 address of the requesting client (key: "host")
-        :param network_addr: The subnet's base address in decimal notation, e.g. "135.170.0.0"
-        :param network_cidr: The subnet mask in CIDR notation without a preceding '/' (slash), e.g. "24"
-        :return: True if the given ip matches the subnet. False otherwise.
-        :throws: A warning is printed and logged if any invalid arguments are passed. Nothing more.
-        '''
+    def _passes_ip_filter(self, billing):
+        """False when ip_filter_is_active and the client is in the IPv4 or the IPv6 filter subnet."""
+        if not self.conf["ip_filter_is_active"]:
+            return True
+        client_ip = billing.get("moverInfo", {}).get("protocolInfo", {}).get("host")
+        return not self._ip_matches_subnet(client_ip, self.conf["ipv4_network_address"], self.conf["ipv4_cidr"]) \
+            and not self._ip_matches_subnet(client_ip, self.conf["ipv6_network_address"], self.conf["ipv6_cidr"])
 
+    def _ip_matches_subnet(self, client_ip, network_address, cidr):
+        """
+        True if client_ip is in network_address/cidr, e.g. "131.169.0.0" and "16".
+        An invalid address or subnet logs a warning and gives None, which counts as no match.
+        """
         try:
-            subnet = ip_network(network_addr + "/" + str(network_cidr))
-            ip_addr = ip_address(client_ip_addr)
-
-            if ip_addr in subnet:
-                return True
-            return False
-
-        except ValueError as ve:
-            logger.warning("Invalid Argument: %s", ve)
-
-# ************************************************************************************************************
+            subnet = ip_network(network_address + "/" + str(cidr))
+            return ip_address(client_ip) in subnet
+        except ValueError as e:
+            logger.warning("Invalid Argument: %s", e)
 
 
 class AmqSender(stomp.ConnectionListener):
@@ -148,6 +141,7 @@ class AmqSender(stomp.ConnectionListener):
         connection.set_listener("wlcgConverter-receipts", self)
 
     def send(self, destination, body, content_type):
+        """Queue a record; confirm() sends it."""
         self.pending.append((destination, body, content_type))
 
     def confirm(self):
@@ -175,83 +169,67 @@ class AmqSender(stomp.ConnectionListener):
         logger.debug("The broker confirmed %d records.", len(frames))
 
     def on_receipt(self, frame):
+        """stomp.py callback: the broker confirmed a frame."""
         if frame.headers.get("receipt-id") == self._receipt:
             self._answered.set()
 
     def on_error(self, frame):
+        """stomp.py callback: the broker answered with an ERROR frame."""
         if not self._answered.is_set():
             self._problem = "the broker answered with an error: %s" % frame.headers.get("message", "")
             self._answered.set()
 
     def on_disconnected(self):
+        """stomp.py callback: the connection to the broker is gone."""
         if not self._answered.is_set():
             self._problem = "the connection to the broker was lost"
             self._answered.set()
 
 
-def __connect_2_activemq(conf) -> object:
+def connect_to_broker(conf):
+    """
+    Open the STOMP connection to the AMQ broker: always TLS to amq_port_tls, with the
+    broker's certificate and host name verified against amq_ca_certs. Logs in with the
+    host certificate if path_to_cert and path_to_key are set, else with username and
+    password. Config has checked these settings at startup.
+    """
+    broker = [(conf["amq_host"], int(conf["amq_port_tls"]))]
+    connection = stomp.Connection12(broker)
 
-    # Always TLS, and the broker must prove who it is: without ca_certs stomp.py skips the
-    # certificate and hostname checks. Config has checked these keys at startup.
-    amq_host = conf["amq_host"]
-    broker = [(amq_host, int(conf["amq_port_tls"]))]
-
-    conn = stomp.Connection12(broker)
-
-    # ssl_version is left to stomp.py: its default (PROTOCOL_TLS_CLIENT) checks the hostname,
-    # while an explicit PROTOCOL_TLSv1_2 context does not
+    # ssl_version is left to stomp.py: its default (PROTOCOL_TLS_CLIENT) checks the host name,
+    # while an explicit PROTOCOL_TLSv1_2 context does not. Without ca_certs, stomp.py skips
+    # the certificate and host name checks.
     if "path_to_cert" in conf and "path_to_key" in conf:
-        conn.set_ssl(
-            for_hosts=broker,
-            key_file=conf["path_to_key"],
-            cert_file=conf["path_to_cert"],
-            ca_certs=conf["amq_ca_certs"])
-        conn.connect(wait=True)
-        logger.info("AMQ TLS: certificate based authentication is used.")
-
+        connection.set_ssl(for_hosts=broker, key_file=conf["path_to_key"], cert_file=conf["path_to_cert"],
+                           ca_certs=conf["amq_ca_certs"])
+        connection.connect(wait=True)
+        logger.info("Connected to the AMQ broker %s:%s with the host certificate.", *broker[0])
     elif "username" in conf and "password" in conf:
-        # never send the password, or the records, without TLS
-        conn.set_ssl(for_hosts=broker, ca_certs=conf["amq_ca_certs"])
-        conn.connect(conf["username"], conf["password"], wait=True)
-        logger.info("AMQ TLS: user-password based authentication is used.")
+        # the password, like the records, is only sent over TLS
+        connection.set_ssl(for_hosts=broker, ca_certs=conf["amq_ca_certs"])
+        connection.connect(conf["username"], conf["password"], wait=True)
+        logger.info("Connected to the AMQ broker %s:%s with username and password.", *broker[0])
     else:
-        raise IOError(
-            "ERROR: The input arguments do not include a valid authentication tuple \
-             (certificate, key) or (username, password)"
-        )
-
-    return conn
-
-# ************************************************************************************************************
+        raise ConfigError("no broker login configured: set path_to_cert and path_to_key, or username and password")
+    return connection
 
 
-class CustomKafkaConsumer:
-    """Initialize a custom Kafka-Consumer"""
+class BillingConsumer:
+    """Reads the billing topic from Kafka in batches and commits a batch only after it is delivered."""
 
-    def __init__(self,
-                 servers=[],
-                 msg_offset='earliest',
-                 topic_name='',
-                 group_id='',
-                 msg_format='json'):
-        self.servers = servers
-        self.group_id = group_id
-        self.topic_name = topic_name
-        self.msg_format = msg_format
-        self.msg_offset = msg_offset
+    def __init__(self, servers, topic, group_id, offset_reset='latest'):
         logger.info("Trying to connect to Kafka...")
-        # offsets are committed by getMessage, after a batch is delivered. A failure here
-        # is raised to main(), which stops with a clear message instead of running without
-        # a consumer.
-        self.consumer = KafkaConsumer(self.topic_name,
-                                      auto_offset_reset=self.msg_offset,
-                                      group_id=self.group_id,
-                                      bootstrap_servers=self.servers,
+        # A failure here is raised to main(), which stops with a clear message instead of
+        # running without a consumer. Offsets are committed by run(), not automatically.
+        self.consumer = KafkaConsumer(topic,
+                                      auto_offset_reset=offset_reset,
+                                      group_id=group_id,
+                                      bootstrap_servers=servers,
                                       enable_auto_commit=False,
                                       value_deserializer=decode_message)
         logger.info("Connection to Kafka established.")
 
-    def getMessage(self, analyser):
+    def run(self, converter):
         """
         Process Kafka messages batch by batch. A batch's offsets are committed only after
         its records are written and confirmed by the broker. Any error ends the loop before
@@ -264,37 +242,36 @@ class CustomKafkaConsumer:
                 continue
             for messages in batch.values():
                 for message in messages:
-                    analyser.execute(message)
-            analyser.deliver()
+                    converter.process(message)
+            converter.deliver()
             self.consumer.commit()
 
 
-# ************************************************************************************************************
-
 def main():
+    """
+    Start the converter. Exit codes: 2 for an invalid configuration (a restart cannot fix
+    it), 1 when Kafka is unreachable at startup or a batch could not be delivered (a restart
+    reads the batch again), 0 after Ctrl-C.
+    """
     parser = argparse.ArgumentParser(
-        description='Script to convert desy-formatted billing json files to wlcg-formatted json files'
+        description='Read dCache billing records from Kafka and send one WLCG transfer-monitoring '
+                    'record per xroot transfer to the AMQ broker.'
     )
-    parser.add_argument(
-        dest='path_to_config', help='Path to configuration file for wlcgConverter', type=str
-    )
+    parser.add_argument(dest='path_to_config', help='path to wlcgConverter_config.yaml', type=str)
     args = parser.parse_args()
 
-    # read the config yaml file #
-    with open(args.path_to_config, 'r') as config:
+    with open(args.path_to_config, 'r') as config_file:
         try:
-            config_all = yaml.safe_load(config) or {}
-        except yaml.YAMLError as exc:
-            logger.error("An error occurred opening the wlcgConverter_config.yaml file: {}".format(exc))
+            raw_config = yaml.safe_load(config_file) or {}
+        except yaml.YAMLError as e:
+            logger.error("Could not read %s: %s", args.path_to_config, e)
             sys.exit(1)
 
-    # logging setup #
-    logging_conf = config_all.get("config::logging")
-    logging.config.dictConfig(logging_conf)
+    logging.config.dictConfig(raw_config.get("config::logging"))
 
-    # validate the config; empty values are dropped #
+    # empty values are dropped, missing or invalid settings stop the converter
     try:
-        conf = Config(config_all)
+        conf = Config(raw_config)
     except ConfigError as e:
         logger.error("Invalid configuration in %s: %s", args.path_to_config, e)
         sys.exit(2)
@@ -302,15 +279,13 @@ def main():
     if conf["verbose"]:
         logger.setLevel('DEBUG')
 
-    # SciTag names for the activity field; loaded once, never per record #
+    # SciTag names for the activity field; loaded once, never per record
     registry = load_registry(conf.scitags_url, conf.scitags_cache_file)
 
-    # create a kafka consumer object #
     try:
-        kafka_consumer = CustomKafkaConsumer(topic_name=conf["topic"],
-                                        msg_offset='latest',
-                                        servers=conf["kafka_broker_incoming"],
-                                        group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
+        consumer = BillingConsumer(servers=conf["kafka_broker_incoming"],
+                                   topic=conf["topic"],
+                                   group_id="wlcgConverter-{}-consumer".format(conf["instance"]))
     except Exception as e:
         # exit 1, not 2: Kafka may be back at the next start
         logger.error("Could not connect to Kafka at %s: %s", conf["kafka_broker_incoming"], e)
@@ -318,20 +293,17 @@ def main():
 
     connection = None
     sender = None
-    # connect to active_mq if send_date is True in config#
     if conf["send_data"]:
-        connection = __connect_2_activemq(conf)
+        connection = connect_to_broker(conf)
         sender = AmqSender(connection)
-        logger.info("Producer: Connection to amq broker established successfully.")
 
-    # create a converter object #
-    wlgc_converter = WlcgConverter(conf, activemq_connection=sender, registry=registry)
-    # and start working until Ctrl-c is pressed.#
+    converter = WlcgConverter(conf, sender=sender, registry=registry)
+    # runs until Ctrl-C, or until a batch cannot be delivered
     exit_code = 0
     try:
-        kafka_consumer.getMessage(analyser=wlgc_converter)
+        consumer.run(converter)
     except KeyboardInterrupt:
-        logger.info("\nWlcgConverter was terminated by user (CTRL-C).")
+        logger.info("WlcgConverter was terminated by user (CTRL-C).")
     except DeliveryError as e:
         logger.error("Stopped: %s. The batch was not committed in Kafka; its records are read and "
                      "sent again at the next start.", e)
@@ -343,9 +315,8 @@ def main():
     finally:
         # disconnecting a lost connection would wait for a receipt that never comes
         if connection is not None and connection.is_connected():
-            logger.info("Disconnecting...")
             connection.disconnect()
-            logger.info("AMQ connection was disconnected successfully.")
+            logger.info("Disconnected from the AMQ broker.")
     if exit_code:
         sys.exit(exit_code)
 

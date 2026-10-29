@@ -143,11 +143,11 @@ def kafka_batch(*records):
 
 
 def run_loop(conf, sender, batches):
-    consumer = wlcgConverter.CustomKafkaConsumer.__new__(wlcgConverter.CustomKafkaConsumer)
+    consumer = wlcgConverter.BillingConsumer.__new__(wlcgConverter.BillingConsumer)
     consumer.consumer = FakeConsumer(batches)
-    converter = wlcgConverter.WlcgConverter(conf, activemq_connection=sender)
+    converter = wlcgConverter.WlcgConverter(conf, sender=sender)
     try:
-        consumer.getMessage(converter)
+        consumer.run(converter)
     except EndOfTest:
         pass
     return consumer.consumer
@@ -170,10 +170,10 @@ def test_each_confirmed_batch_is_committed():
 
 def test_unconfirmed_batch_is_not_committed():
     sender, _ = sender_with("silent")
-    consumer = wlcgConverter.CustomKafkaConsumer.__new__(wlcgConverter.CustomKafkaConsumer)
+    consumer = wlcgConverter.BillingConsumer.__new__(wlcgConverter.BillingConsumer)
     consumer.consumer = FakeConsumer([kafka_batch(billing_record())])
     with pytest.raises(DeliveryError):
-        consumer.getMessage(wlcgConverter.WlcgConverter(amq_config(), activemq_connection=sender))
+        consumer.run(wlcgConverter.WlcgConverter(amq_config(), sender=sender))
     assert consumer.consumer.commits == 0
 
 
@@ -187,10 +187,10 @@ def test_local_dump_failure_stops_before_sending_or_committing(tmp_path):
     # before, an unwritable dump file made the record vanish without a log line
     sender, stomp = sender_with("confirm")
     conf = amq_config(local_dump=True, path_to_converted_json_file=str(tmp_path / "missing-dir" / "out.json"))
-    consumer = wlcgConverter.CustomKafkaConsumer.__new__(wlcgConverter.CustomKafkaConsumer)
+    consumer = wlcgConverter.BillingConsumer.__new__(wlcgConverter.BillingConsumer)
     consumer.consumer = FakeConsumer([kafka_batch(billing_record())])
     with pytest.raises(OSError):
-        consumer.getMessage(wlcgConverter.WlcgConverter(conf, activemq_connection=sender))
+        consumer.run(wlcgConverter.WlcgConverter(conf, sender=sender))
     assert (consumer.consumer.commits, stomp.frames) == (0, [])
 
 
@@ -209,10 +209,10 @@ def run_main(monkeypatch, tmp_path, failure):
         def __init__(self, **kwargs):
             pass
 
-        def getMessage(self, analyser):
+        def run(self, converter):
             raise failure
 
-    monkeypatch.setattr(wlcgConverter, "CustomKafkaConsumer", StoppingConsumer)
+    monkeypatch.setattr(wlcgConverter, "BillingConsumer", StoppingConsumer)
     monkeypatch.setattr(wlcgConverter, "load_registry", lambda url, cache_file: None)
     raw = {"kafka_broker_incoming": ["localhost:9092"], "topic": "t", "instance": "i",
            "server_site": "DESY-HH", "server_version": "10.2.5",

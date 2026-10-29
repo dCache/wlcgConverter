@@ -6,6 +6,7 @@ from .net import parse_network
 
 
 class ConfigError(Exception):
+    """A setting is missing or invalid; main() exits with code 2."""
     pass
 
 
@@ -30,6 +31,7 @@ class Config(dict):
     """
 
     def __init__(self, raw):
+        """raw: the parsed YAML file. Raises ConfigError on the first bad setting."""
         if raw is None:
             raw = {}
         if not isinstance(raw, dict):
@@ -77,6 +79,7 @@ class Config(dict):
                     raise ConfigError("'%s': no such file: %s" % (key, self[key]))
 
     def _string(self, key, default):
+        """The setting as a stripped string, default if it is absent or blank."""
         value = self.get(key, default)
         if not isinstance(value, str):
             # an unquoted 10.10 would silently become the float 10.1
@@ -85,12 +88,14 @@ class Config(dict):
         return value.strip() or default
 
     def _required(self, key, what):
+        """Like _string, but a missing or blank value raises ConfigError, naming what to set."""
         value = self._string(key, "")
         if not value:
             raise ConfigError("'%s' is obligatory: set it to %s" % (key, what))
         return value
 
     def _networks(self, key):
+        """The setting as a list of ip_network objects."""
         cidrs = self.get(key, [])
         if not isinstance(cidrs, list):
             raise ConfigError("'%s' must be a list of CIDRs" % key)
@@ -100,6 +105,7 @@ class Config(dict):
             raise ConfigError("'%s': %s" % (key, e))
 
     def _prefixes(self, key):
+        """The setting as a list of absolute paths, trailing '/' removed, longest first."""
         prefixes = self.get(key, [])
         if not isinstance(prefixes, list):
             raise ConfigError("'%s' must be a list of absolute paths" % key)
